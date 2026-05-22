@@ -2,7 +2,6 @@
 
 > **Maintainer:** Ajay Makwana (@makwana)
 > **Created:** May 2026
-> **Presented at:** Bangalore Developer Day, July 2026
 
 ---
 
@@ -13,7 +12,7 @@ Commerce Brain is a BM25 search engine over Adobe Commerce source code, exposed 
 - A **Web UI** for anyone to search in the browser
 - A **CLI tool** for local terminal search
 
-It indexes **519 high-signal files** from **24 magento-sparta repos** and returns real source-of-truth results in under 1 second — no hallucination, no API key, fully within Adobe infrastructure.
+It indexes high-signal files from magento-sparta repos related to magento modules and returns real source-of-truth results in under 1 second — no hallucination, no API key, fully within Adobe infrastructure.
 
 ---
 
