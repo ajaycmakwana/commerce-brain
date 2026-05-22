@@ -1,0 +1,17 @@
+application:
+  actions: actions
+  web: web-src
+  runtimeManifest:
+    packages:
+      app-builder:
+        license: Apache-2.0
+        actions:
+          search:
+            function: actions/search/index.js
+            web: 'yes'
+            runtime: nodejs:22
+            inputs:
+              LOG_LEVEL: debug
+            annotations:
+              require-adobe-auth: false
+              final: true

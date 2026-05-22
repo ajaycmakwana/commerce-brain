@@ -1,0 +1,40 @@
+# Generated index files (rebuild with index_build.py + export_index_json.py)
+commerce_brain.pkl
+commerce_brain_index.json
+
+# Cloned repos (rebuild with setup.sh)
+adobe-ims/
+adobe-stock-integration/
+commerce-data-export/
+commerce-data-export-ee/
+data-services/
+data-services-graphql/
+ext-braintree/
+inventory/
+magento-catalog-sync-admin/
+magento-live-search/
+magento-product-recommendations/
+magento-product-recommendations-admin/
+magento2-page-builder/
+magento2-page-builder-ee/
+magento2-payments/
+magento2b2b/
+magento2ce/
+magento2ee/
+saas-export/
+security-package/
+security-package-b2b/
+security-package-ee/
+services-connector/
+services-id/
+
+# App Builder — credentials and bundled index
+app-builder/.env
+app-builder/actions/search/index.json
+app-builder/node_modules/
+app-builder/dist/
+200136-CommerceBrain-Stage.json
+
+# Python
+__pycache__/
+*.pyc
