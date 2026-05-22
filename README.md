@@ -2,7 +2,7 @@
 
 > Search Adobe Commerce source code from inside Claude / Cursor in < 0.1s.
 
-BM25 index over 519 high-signal files from 24 magento-sparta repos:
+BM25 index over high-signal files from 24 magento-sparta repos:
 `db_schema.xml`, `et_schema.xml`, `mview.xml`, `indexer.xml`, `Model/Query/*.php`, `Console/Command/*.php`
 
 ---
