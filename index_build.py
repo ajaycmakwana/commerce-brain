@@ -27,11 +27,37 @@ MATCHERS = [
 ]
 
 SKIP_DIRS = {"app-builder", ".git"}
+COMMERCE_QUERIES_DIR = REPOS_DIR / "commerce_queries"
 
 
 def tokenize(text: str) -> list[str]:
     """Split on non-alphanumeric chars, lowercase, drop short tokens."""
     return [t for t in re.split(r"[^a-zA-Z0-9_]+", text.lower()) if len(t) > 2]
+
+
+def collect_sql_queries():
+    """Chunk commerce_queries/*.md by ### heading — one chunk per SQL query."""
+    docs = []
+    if not COMMERCE_QUERIES_DIR.exists():
+        return docs
+    for md_file in sorted(COMMERCE_QUERIES_DIR.glob("*.md")):
+        content = md_file.read_text(errors="ignore")
+        parts = re.split(r"\n(?=### )", content)
+        for part in parts[1:]:
+            part = part.strip()
+            if not part:
+                continue
+            title = part.split("\n")[0].lstrip("# ").strip()
+            docs.append({
+                "repo": "commerce_queries",
+                "file_type": "sql",
+                "path": str(md_file.relative_to(REPOS_DIR)),
+                "content": part,
+                "tokens": tokenize(part),
+            })
+    if docs:
+        print(f"  sql          {len(docs)} queries (from commerce_queries/)")
+    return docs
 
 
 def collect_docs():
@@ -57,6 +83,7 @@ def collect_docs():
                     except Exception as e:
                         print(f"  Error reading {f}: {e}")
 
+    docs.extend(collect_sql_queries())
     return docs
 
 

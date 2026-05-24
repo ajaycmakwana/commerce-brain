@@ -1,6 +1,7 @@
-# Generated index files (rebuild with index_build.py + export_index_json.py)
+# Generated index files (rebuild with index_build.py / kibana_index_build.py)
 commerce_brain.pkl
 commerce_brain_index.json
+kibana_brain.pkl
 
 # Cloned repos (rebuild with setup.sh)
 adobe-ims/

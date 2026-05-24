@@ -67,10 +67,11 @@ clone_or_update security-package                  develop
 clone_or_update security-package-b2b              develop
 clone_or_update security-package-ee               1.0-develop
 
-# ── 3. Build BM25 index ───────────────────────────────────────────────────────
+# ── 3. Build BM25 indexes ────────────────────────────────────────────────────
 echo ""
-echo "[3/4] Building BM25 index..."
+echo "[3/4] Building BM25 indexes..."
 python3 "$BRAIN_DIR/index_build.py"
+python3 "$BRAIN_DIR/kibana_index_build.py"
 
 # ── 4. Configure MCP ─────────────────────────────────────────────────────────
 echo ""
