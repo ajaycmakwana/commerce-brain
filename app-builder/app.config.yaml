@@ -15,3 +15,21 @@ application:
             annotations:
               require-adobe-auth: false
               final: true
+          search-kibana:
+            function: actions/search-kibana/index.js
+            web: 'yes'
+            runtime: nodejs:22
+            inputs:
+              LOG_LEVEL: debug
+            annotations:
+              require-adobe-auth: false
+              final: true
+          search-saas:
+            function: actions/search-saas/index.js
+            web: 'yes'
+            runtime: nodejs:22
+            inputs:
+              LOG_LEVEL: debug
+            annotations:
+              require-adobe-auth: false
+              final: true

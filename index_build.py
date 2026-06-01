@@ -10,12 +10,14 @@ Output: commerce_brain.pkl  (BM25 index + document store)
 import pickle
 import re
 import sys
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from rank_bm25 import BM25Okapi
 
-REPOS_DIR = Path(__file__).parent
-INDEX_FILE = REPOS_DIR / "commerce_brain.pkl"
+BRAIN_DIR = Path(__file__).parent
+REPOS_DIR = Path.home() / "Claude" / "commerce-brain-resources"
+INDEX_FILE = BRAIN_DIR / "commerce_brain.pkl"
 
 MATCHERS = [
     ("mview",    lambda p: p.name == "mview.xml"    and p.parent.name == "etc"),
@@ -27,12 +29,42 @@ MATCHERS = [
 ]
 
 SKIP_DIRS = {"app-builder", ".git"}
-COMMERCE_QUERIES_DIR = REPOS_DIR / "commerce_queries"
+COMMERCE_QUERIES_DIR = BRAIN_DIR / "commerce_queries"
 
 
 def tokenize(text: str) -> list[str]:
     """Split on non-alphanumeric chars, lowercase, drop short tokens."""
     return [t for t in re.split(r"[^a-zA-Z0-9_]+", text.lower()) if len(t) > 2]
+
+
+def chunk_db_schema(content: str, rel_path: str, repo: str) -> list[dict]:
+    """Split db_schema.xml into one chunk per <table> element.
+    Falls back to a single chunk if XML is unparseable."""
+    try:
+        root = ET.fromstring(content)
+    except ET.ParseError:
+        return [{"repo": repo, "file_type": "db_schema", "path": rel_path,
+                 "content": content, "tokens": tokenize(content)}]
+
+    chunks = []
+    for table_elem in root.findall("table"):
+        table_name = table_elem.get("name", "")
+        if not table_name:
+            continue
+        table_xml = ET.tostring(table_elem, encoding="unicode")
+        chunk_content = f"<!-- {rel_path} :: {table_name} -->\n{table_xml}"
+        chunks.append({
+            "repo": repo,
+            "file_type": "db_schema",
+            "path": f"{rel_path} :: {table_name}",
+            "content": chunk_content,
+            "tokens": tokenize(f"{table_name} {table_xml}"),
+        })
+    # fallback if no <table> elements found (schema with only DDL patches etc.)
+    if not chunks:
+        chunks.append({"repo": repo, "file_type": "db_schema", "path": rel_path,
+                        "content": content, "tokens": tokenize(content)})
+    return chunks
 
 
 def collect_sql_queries():
@@ -51,7 +83,7 @@ def collect_sql_queries():
             docs.append({
                 "repo": "commerce_queries",
                 "file_type": "sql",
-                "path": str(md_file.relative_to(REPOS_DIR)),
+                "path": str(md_file.relative_to(BRAIN_DIR)),
                 "content": part,
                 "tokens": tokenize(part),
             })
@@ -72,14 +104,16 @@ def collect_docs():
                     try:
                         content = f.read_text(errors="ignore")
                         rel_path = str(f.relative_to(REPOS_DIR))
-                        tokens = tokenize(content)
-                        docs.append({
-                            "repo": repo.name,
-                            "file_type": file_type,
-                            "path": rel_path,
-                            "content": content,
-                            "tokens": tokens,
-                        })
+                        if file_type == "db_schema":
+                            docs.extend(chunk_db_schema(content, rel_path, repo.name))
+                        else:
+                            docs.append({
+                                "repo": repo.name,
+                                "file_type": file_type,
+                                "path": rel_path,
+                                "content": content,
+                                "tokens": tokenize(content),
+                            })
                     except Exception as e:
                         print(f"  Error reading {f}: {e}")
 
