@@ -30,6 +30,41 @@ SEARCH_URL = (
 KIBANA_INDEX_FILE = Path(__file__).parent / "kibana_brain.pkl"
 _kibana_store = None
 
+SAAS_INDEX_FILE = Path(__file__).parent / "saas_brain.pkl"
+_saas_store = None
+
+
+def _get_saas_store():
+    global _saas_store
+    if _saas_store is None and SAAS_INDEX_FILE.exists():
+        with open(SAAS_INDEX_FILE, "rb") as fh:
+            _saas_store = pickle.load(fh)
+    return _saas_store
+
+
+def search_saas_schema(query: str, top_k: int = 5) -> str:
+    store = _get_saas_store()
+    if not store:
+        return "SaaS Brain index not found. Run: python3 saas_index_build.py"
+    bm25 = store["bm25"]
+    docs = store["docs"]
+    tokens = _tokenize(query)
+    scores = bm25.get_scores(tokens)
+    ranked = sorted(enumerate(scores), key=lambda x: x[1], reverse=True)
+    results = []
+    for idx, score in ranked[:top_k]:
+        if score <= 0:
+            break
+        results.append((round(score, 2), docs[idx]))
+    if not results:
+        return f"No results found for: {query!r}"
+    lines = [f"Top {len(results)} results for: {query!r}\n"]
+    for score, d in results:
+        lines.append(f"**[{d['source']}] {d['title']}** (score: {score})")
+        lines.append(d["content"].strip())
+        lines.append("\n---\n")
+    return "\n".join(lines)
+
 
 def _get_kibana_store():
     global _kibana_store
@@ -71,6 +106,35 @@ def search_kibana(query: str, top_k: int = 5) -> str:
     return "\n".join(lines)
 
 TOOLS = [
+    {
+        "name": "search_saas_schema",
+        "description": (
+            "Search Adobe Commerce SaaS API schema reference: CS GraphQL, Live Search GraphQL, CS gRPC, PREX REST. "
+            "Returns query structures, field names, response shapes, arg types, and gotchas for all SaaS APIs. "
+            "Use when you need: exact field names in a response, required vs optional args, "
+            "response shape for a specific query, known gotchas (e.g. 'attribute' not 'code' in attributeMetadata, "
+            "'results' not 'units' in recommendations, max 86400s in GetUpdatedProductSkus, "
+            "parent_sku required in GetProductVariants, count NON-NULL in categories). "
+            "Schema is Adobe-defined and stable across all merchant environments — only values differ. "
+            "Also covers: SHA1 customer group codes, auth headers, PREX REST request body fields, "
+            "gRPC service names and method signatures."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "API name, field name, query name, or scenario — e.g. 'products skus response shape', 'recommendations field names', 'GetProductOverrides request', 'productSearch filter args', 'customer group SHA1'",
+                },
+                "top_k": {
+                    "type": "integer",
+                    "description": "Number of results (default 5, max 10)",
+                    "default": 5,
+                },
+            },
+            "required": ["query"],
+        },
+    },
     {
         "name": "search_kibana_queries",
         "description": (
@@ -177,6 +241,26 @@ def handle(msg: dict):
         params = msg.get("params", {})
         tool_name = params.get("name")
         args = params.get("arguments", {})
+
+        if tool_name == "search_saas_schema":
+            query = args.get("query", "")
+            top_k = min(int(args.get("top_k", 5)), 10)
+            try:
+                result = search_saas_schema(query, top_k)
+                return {
+                    "jsonrpc": "2.0",
+                    "id": msg_id,
+                    "result": {"content": [{"type": "text", "text": result}]},
+                }
+            except Exception as e:
+                return {
+                    "jsonrpc": "2.0",
+                    "id": msg_id,
+                    "result": {
+                        "content": [{"type": "text", "text": f"Error: {e}"}],
+                        "isError": True,
+                    },
+                }
 
         if tool_name == "search_kibana_queries":
             query = args.get("query", "")
