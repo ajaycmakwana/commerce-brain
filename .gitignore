@@ -1,40 +1,23 @@
-# Generated index files (rebuild with index_build.py / kibana_index_build.py)
+# Generated index files (rebuild with index_build.py / kibana_index_build.py / saas_index_build.py)
 commerce_brain.pkl
 commerce_brain_index.json
 kibana_brain.pkl
+kibana_brain_index.json
+saas_brain.pkl
+saas_brain_index.json
 
-# Cloned repos (rebuild with setup.sh)
-adobe-ims/
-adobe-stock-integration/
-commerce-data-export/
-commerce-data-export-ee/
-data-services/
-data-services-graphql/
-ext-braintree/
-inventory/
-magento-catalog-sync-admin/
-magento-live-search/
-magento-product-recommendations/
-magento-product-recommendations-admin/
-magento2-page-builder/
-magento2-page-builder-ee/
-magento2-payments/
-magento2b2b/
-magento2ce/
-magento2ee/
-saas-export/
-security-package/
-security-package-b2b/
-security-package-ee/
-services-connector/
-services-id/
-
-# App Builder — credentials and bundled index
+# App Builder — credentials, bundled indexes, build artifacts
 app-builder/.env
 app-builder/actions/search/index.json
+app-builder/actions/search-kibana/index.json
+app-builder/actions/search-saas/index.json
 app-builder/node_modules/
 app-builder/dist/
 200136-CommerceBrain-Stage.json
+
+# Logs and personal notes
+mcp-server.log
+agent-guesses-log.md
 
 # Python
 __pycache__/
