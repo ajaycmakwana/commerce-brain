@@ -111,11 +111,49 @@ EOF
 [ -d "$HOME/.cursor" ] && add_to_mcp "$CURSOR_MCP"
 [ -d "$HOME/Library/Application Support/Claude" ] && add_to_mcp "$CLAUDE_MCP"
 
+# ── 5. Configure Claude Code hook ────────────────────────────────────────────
+echo ""
+echo "[5/5] Configuring Claude Code auto-search hook..."
+
+CLAUDE_CODE_SETTINGS="$HOME/.claude/settings.json"
+AUTO_SEARCH="$BRAIN_DIR/auto_search.py"
+
+if [ ! -f "$CLAUDE_CODE_SETTINGS" ]; then
+    mkdir -p "$HOME/.claude"
+    echo '{}' > "$CLAUDE_CODE_SETTINGS"
+fi
+
+if grep -q "auto_search.py" "$CLAUDE_CODE_SETTINGS" 2>/dev/null; then
+    echo "  Hook already configured: $CLAUDE_CODE_SETTINGS"
+else
+    python3 - "$CLAUDE_CODE_SETTINGS" "$AUTO_SEARCH" <<'EOF'
+import json, sys
+cfg_path, hook_script = sys.argv[1], sys.argv[2]
+with open(cfg_path) as f:
+    cfg = json.load(f)
+cfg.setdefault("hooks", {}).setdefault("UserPromptSubmit", [])
+hook_entry = {
+    "matcher": "",
+    "hooks": [{"type": "command", "command": f"python3 {hook_script}"}]
+}
+if not any(
+    any(h.get("command", "").endswith("auto_search.py") for h in e.get("hooks", []))
+    for e in cfg["hooks"]["UserPromptSubmit"]
+):
+    cfg["hooks"]["UserPromptSubmit"].append(hook_entry)
+    with open(cfg_path, "w") as f:
+        json.dump(cfg, f, indent=2)
+    print(f"  Added auto-search hook to: {cfg_path}")
+else:
+    print(f"  Hook already present: {cfg_path}")
+EOF
+fi
+
 echo ""
 echo "══════════════════════════════════════════════════════"
 echo "  Commerce Brain is ready!"
 echo ""
-echo "  Restart Cursor / Claude Desktop to activate the MCP."
+echo "  Restart Claude Code to activate the hook + MCP."
 echo ""
 echo "  Test in terminal:"
 echo "    python3 $BRAIN_DIR/search_cli.py \"cde_products_feed columns\""
