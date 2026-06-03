@@ -113,7 +113,7 @@ EOF
 
 # ── 5. Configure Claude Code hook ────────────────────────────────────────────
 echo ""
-echo "[5/5] Configuring Claude Code auto-search hook..."
+echo "[5/6] Configuring Claude Code auto-search hook..."
 
 CLAUDE_CODE_SETTINGS="$HOME/.claude/settings.json"
 AUTO_SEARCH="$BRAIN_DIR/auto_search.py"
@@ -147,6 +147,32 @@ if not any(
 else:
     print(f"  Hook already present: {cfg_path}")
 EOF
+fi
+
+# ── 6. Configure global Claude Code CLAUDE.md ────────────────────────────────
+echo ""
+echo "[6/6] Configuring global Claude Code rules (~/.claude/CLAUDE.md)..."
+
+GLOBAL_CLAUDE_MD="$HOME/.claude/CLAUDE.md"
+mkdir -p "$HOME/.claude"
+
+if grep -q "Commerce Brain — Investigation Rules" "$GLOBAL_CLAUDE_MD" 2>/dev/null; then
+    echo "  Commerce Brain rules already present: $GLOBAL_CLAUDE_MD"
+else
+    cat >> "$GLOBAL_CLAUDE_MD" <<'RULES'
+
+## Commerce Brain — Investigation Rules
+
+These rules apply ONLY when the user starts their message with `@commercebrain`, or when COMMERCE BRAIN AUTO-CONTEXT is present in context.
+
+1. **Call knowledge tools first** — before writing any table name, column, field, or query, call `search_commerce_knowledge`, `search_kibana_queries`, or `search_saas_schema`. Never answer Commerce-specific questions from training knowledge.
+1a. **`search_db_schema` is mandatory before any SQL** — Call `search_db_schema(table_name)` for EVERY table in the query. Do NOT write a column name without a confirmed schema. On EE, join fields differ from CE — only `search_db_schema` gives the correct column names.
+2. **Never execute autonomously** — provide SQL, CLI commands, Kibana queries, and API calls as text for the user to run. Never call `grpc_*`, `ls_product_search`, `cs_products_by_sku`, Bash, or live tools unless explicitly asked.
+3. **Read-only** — never run INSERT, UPDATE, DELETE, DROP, TRUNCATE. CLI commands that modify state (`saas:resync`, `indexer:reindex`, `cache:flush`, etc.) are write operations — provide as text only when explicitly asked, clearly labeled as data-modifying.
+4. **Report data, don't judge** — report what results show; do not compare against training expectations.
+5. **Substitute values** — never present queries with unfilled placeholders like `<entity_id>`.
+RULES
+    echo "  Added Commerce Brain rules to: $GLOBAL_CLAUDE_MD"
 fi
 
 echo ""
