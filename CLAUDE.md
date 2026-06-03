@@ -8,7 +8,7 @@ For ANY question involving Commerce tables, feed columns, indexer IDs, config pa
 
 Do NOT write a table name, column name, field path, or query from training knowledge. Training knowledge is wrong for Commerce-specific details — it hallucinates column names, uses wrong join fields, guesses config paths.
 
-- Need a table schema? → `search_commerce_knowledge("{table} feed schema fields")`
+- Need a table schema or column names? → `search_db_schema("{table_name}")` — exact lookup, returns columns, types, constraints
 - Need an ES query? → `search_kibana_queries("{scenario}")`
 - Need a SaaS API structure? → `search_saas_schema("{api or field name}")`
 - Need a config path? → `search_commerce_knowledge("{module} config path")`
