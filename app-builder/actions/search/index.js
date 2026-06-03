@@ -38,7 +38,8 @@ function bm25Scores(queryTokens, store) {
 
 async function main(params) {
   const query = (params.query || '').trim()
-  const topK = Math.min(parseInt(params.top_k || TOP_K, 10), 10)
+  const topK = Math.min(parseInt(params.top_k || TOP_K, 10), 20)
+  const fileType = (params.file_type || '').trim()
 
   const headers = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
 
@@ -53,8 +54,9 @@ async function main(params) {
   const results = scores
     .map((score, idx) => ({ score, idx }))
     .sort((a, b) => b.score - a.score)
-    .slice(0, topK)
     .filter(r => r.score > 0)
+    .filter(r => !fileType || store.docs[r.idx].file_type === fileType)
+    .slice(0, topK)
     .map(({ score, idx }) => {
       const d = store.docs[idx]
       return {

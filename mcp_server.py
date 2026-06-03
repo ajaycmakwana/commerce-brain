@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """
 Commerce Brain MCP Server
-Calls the App Builder search endpoint and exposes search_commerce_knowledge()
-as an MCP tool for Claude / Cursor agents.
+All 4 tools call the App Builder endpoints — no local pkl at runtime.
 
 Usage: python3 mcp_server.py
 MCP config entry:
@@ -15,8 +14,6 @@ MCP config entry:
 """
 
 import json
-import pickle
-import re
 import sys
 import time
 import urllib.request
@@ -25,6 +22,11 @@ from pathlib import Path
 
 FLAG_FILE = Path("/tmp/commerce_brain_active")
 FLAG_TTL = 300  # 5 minutes
+
+BASE_URL = (
+    "https://development-200136-commercebrain-stage.dev.runtime.adobe.io"
+    "/api/v1/web/app-builder"
+)
 
 
 def _is_active() -> bool:
@@ -44,37 +46,68 @@ NOT_ACTIVE_MSG = (
     "  @commercebrain bundle products disappearing from Live Search after resync"
 )
 
-SEARCH_URL = (
-    "https://development-200136-commercebrain-stage.dev.runtime.adobe.io"
-    "/api/v1/web/app-builder/search"
-)
 
-KIBANA_INDEX_FILE = Path(__file__).parent / "kibana_brain.pkl"
-_kibana_store = None
-
-SAAS_INDEX_FILE = Path(__file__).parent / "saas_brain.pkl"
-_saas_store = None
-
-COMMERCE_INDEX_FILE = Path(__file__).parent / "commerce_brain.pkl"
-_commerce_store = None
+def _call(endpoint: str, query: str, top_k: int = 5) -> dict:
+    """Call an App Builder search endpoint and return parsed JSON."""
+    params = urllib.parse.urlencode({"query": query, "top_k": top_k})
+    url = f"{BASE_URL}/{endpoint}?{params}"
+    with urllib.request.urlopen(url, timeout=15) as resp:
+        return json.loads(resp.read())
 
 
-def _get_commerce_store():
-    global _commerce_store
-    if _commerce_store is None and COMMERCE_INDEX_FILE.exists():
-        with open(COMMERCE_INDEX_FILE, "rb") as fh:
-            _commerce_store = pickle.load(fh)
-    return _commerce_store
+def search_commerce_knowledge(query: str, top_k: int = 5) -> str:
+    data = _call("search", query, top_k)
+    results = data.get("results", [])
+    if not results:
+        return f"No results found for: {query!r}"
+    lines = [f"Top {len(results)} results for: {query!r}\n"]
+    for r in results:
+        lines.append(f"### [{r['file_type']}] {r['repo']} — {r['path']}")
+        lines.append(f"Score: {r['score']}\n")
+        lines.append(f"```\n{r['content'].strip()}\n```\n")
+        lines.append("---\n")
+    return "\n".join(lines)
+
+
+def search_kibana_queries(query: str, top_k: int = 5) -> str:
+    data = _call("search-kibana", query, top_k)
+    results = data.get("results", [])
+    if not results:
+        return f"No results found for: {query!r}"
+    lines = [f"Top {len(results)} results for: {query!r}\n"]
+    for r in results:
+        lines.append(f"### [{r['source']}] {r['title']}")
+        lines.append(f"Score: {r['score']}\n")
+        lines.append(r["content"].strip())
+        lines.append("\n---\n")
+    return "\n".join(lines)
+
+
+def search_saas_schema(query: str, top_k: int = 5) -> str:
+    data = _call("search-saas", query, top_k)
+    results = data.get("results", [])
+    if not results:
+        return f"No results found for: {query!r}"
+    lines = [f"Top {len(results)} results for: {query!r}\n"]
+    for r in results:
+        lines.append(f"**[{r['source']}] {r['title']}** (score: {r['score']})")
+        lines.append(r["content"].strip())
+        lines.append("\n---\n")
+    return "\n".join(lines)
 
 
 def search_db_schema(table_name: str) -> str:
-    store = _get_commerce_store()
-    if not store:
-        return "Commerce index not found. Run: python3 index_build.py"
+    """Exact column lookup — queries Commerce search filtered to db_schema file_type."""
+    table_name = table_name.strip()
+    params = urllib.parse.urlencode({"query": table_name, "file_type": "db_schema", "top_k": 20})
+    url = f"{BASE_URL}/search?{params}"
+    with urllib.request.urlopen(url, timeout=15) as resp:
+        data = json.loads(resp.read())
+    results = data.get("results", [])
 
-    suffix = f":: {table_name.strip()}"
-    matches = [d for d in store["docs"]
-               if d.get("file_type") == "db_schema" and d.get("path", "").endswith(suffix)]
+    suffix = f":: {table_name}"
+    matches = [r for r in results
+               if r.get("file_type") == "db_schema" and r.get("path", "").endswith(suffix)]
 
     if not matches:
         return (
@@ -83,84 +116,13 @@ def search_db_schema(table_name: str) -> str:
         )
 
     lines = [f"Schema for `{table_name}` — {len(matches)} source(s):\n"]
-    for d in matches:
-        repo_path = d["path"].split(" :: ")[0]
+    for r in matches:
+        repo_path = r["path"].split(" :: ")[0]
         lines.append(f"**{repo_path}**")
-        lines.append(d["content"].strip())
+        lines.append(r["content"].strip())
         lines.append("\n---\n")
     return "\n".join(lines)
 
-
-def _get_saas_store():
-    global _saas_store
-    if _saas_store is None and SAAS_INDEX_FILE.exists():
-        with open(SAAS_INDEX_FILE, "rb") as fh:
-            _saas_store = pickle.load(fh)
-    return _saas_store
-
-
-def search_saas_schema(query: str, top_k: int = 5) -> str:
-    store = _get_saas_store()
-    if not store:
-        return "SaaS Brain index not found. Run: python3 saas_index_build.py"
-    bm25 = store["bm25"]
-    docs = store["docs"]
-    tokens = _tokenize(query)
-    scores = bm25.get_scores(tokens)
-    ranked = sorted(enumerate(scores), key=lambda x: x[1], reverse=True)
-    results = []
-    for idx, score in ranked[:top_k]:
-        if score <= 0:
-            break
-        results.append((round(score, 2), docs[idx]))
-    if not results:
-        return f"No results found for: {query!r}"
-    lines = [f"Top {len(results)} results for: {query!r}\n"]
-    for score, d in results:
-        lines.append(f"**[{d['source']}] {d['title']}** (score: {score})")
-        lines.append(d["content"].strip())
-        lines.append("\n---\n")
-    return "\n".join(lines)
-
-
-def _get_kibana_store():
-    global _kibana_store
-    if _kibana_store is None and KIBANA_INDEX_FILE.exists():
-        with open(KIBANA_INDEX_FILE, "rb") as fh:
-            _kibana_store = pickle.load(fh)
-    return _kibana_store
-
-
-def _tokenize(text: str) -> list:
-    return [t for t in re.split(r"[^a-zA-Z0-9_]+", text.lower()) if len(t) > 2]
-
-
-def search_kibana(query: str, top_k: int = 5) -> str:
-    store = _get_kibana_store()
-    if not store:
-        return (
-            "Kibana Brain index not found. "
-            "Run: python3 kibana_index_build.py"
-        )
-    bm25 = store["bm25"]
-    docs = store["docs"]
-    tokens = _tokenize(query)
-    scores = bm25.get_scores(tokens)
-    ranked = sorted(enumerate(scores), key=lambda x: x[1], reverse=True)
-    results = []
-    for idx, score in ranked[:top_k]:
-        if score <= 0:
-            break
-        results.append((round(score, 2), docs[idx]))
-    if not results:
-        return f"No results found for: {query!r}"
-    lines = [f"Top {len(results)} results for: {query!r}\n"]
-    for score, d in results:
-        lines.append(f"### [{d['source']}] {d['title']}")
-        lines.append(f"Score: {score}\n")
-        lines.append(d["content"].strip())
-        lines.append("\n---\n")
-    return "\n".join(lines)
 
 TOOLS = [
     {
@@ -201,7 +163,7 @@ TOOLS = [
             "properties": {
                 "query": {
                     "type": "string",
-                    "description": "API name, field name, query name, or scenario — e.g. 'products skus response shape', 'recommendations field names', 'GetProductOverrides request', 'productSearch filter args', 'customer group SHA1'",
+                    "description": "API name, field name, query name, or scenario — e.g. 'products skus response shape', 'GetProductOverrides request', 'productSearch filter args', 'customer group SHA1'",
                 },
                 "top_k": {
                     "type": "integer",
@@ -217,8 +179,6 @@ TOOLS = [
         "description": (
             "Search Kibana ES query patterns and field schema for Live Search catalog index investigation. "
             "Returns ES query structures, field types, nesting rules, and schema gotchas for catalog_1_* indexes. "
-            "Use the returned content as domain knowledge to construct the right ES query for the investigation — "
-            "do not return results verbatim, adapt them to the specific scenario. "
             "ALWAYS call search_commerce_knowledge first for Live Search issues — Commerce is the data source. "
             "Call this second to verify whether data reached the ES index. "
             "Covers: product visibility/displayability, index existence, B2B price, category membership, "
@@ -229,7 +189,7 @@ TOOLS = [
             "properties": {
                 "query": {
                     "type": "string",
-                    "description": "Investigation scenario or question — e.g. 'product not showing in search', 'check if product is displayable', 'B2B price for customer group'",
+                    "description": "Investigation scenario — e.g. 'product not showing in search', 'B2B price for customer group'",
                 },
                 "top_k": {
                     "type": "integer",
@@ -246,7 +206,6 @@ TOOLS = [
             "Search Adobe Commerce source code: table schemas, feed structures, indexer definitions, mview subscriptions, "
             "CLI commands, SQL query patterns. Use the returned content as domain knowledge — read the schema, "
             "understand the table structure, then construct the appropriate SQL or investigation steps. "
-            "Do NOT ask clarifying questions before calling this tool — call it first, get ground truth, then answer. "
             "For Live Search investigations, call this FIRST (Commerce is the data source), then call search_kibana_queries. "
             "Query tips: use 'feed schema fields' not 'db_schema columns' for table columns. "
             "Example queries: 'cde_products_feed feed schema fields', "
@@ -268,32 +227,35 @@ TOOLS = [
             },
             "required": ["query"],
         },
-    }
+    },
 ]
 
 
-def call_search(query: str, top_k: int = 5) -> str:
-    params = urllib.parse.urlencode({"query": query, "top_k": top_k})
-    url = f"{SEARCH_URL}?{params}"
-    with urllib.request.urlopen(url, timeout=15) as resp:
-        data = json.loads(resp.read())
-
-    results = data.get("results", [])
-    if not results:
-        return f"No results found for: {query!r}"
-
-    lines = [f"Top {len(results)} results for: {query!r}\n"]
-    for r in results:
-        lines.append(f"### [{r['file_type']}] {r['repo']} — {r['path']}")
-        lines.append(f"Score: {r['score']}\n")
-        lines.append(f"```\n{r['content'].strip()}\n```\n")
-        lines.append("---\n")
-    return "\n".join(lines)
-
-
-def send(obj: dict):
-    sys.stdout.write(json.dumps(obj) + "\n")
-    sys.stdout.flush()
+def _dispatch(tool_name: str, args: dict, msg_id) -> dict:
+    top_k = min(int(args.get("top_k", 5)), 10)
+    try:
+        if tool_name == "search_db_schema":
+            result = search_db_schema(args.get("table_name", ""))
+        elif tool_name == "search_kibana_queries":
+            result = search_kibana_queries(args.get("query", ""), top_k)
+        elif tool_name == "search_saas_schema":
+            result = search_saas_schema(args.get("query", ""), top_k)
+        elif tool_name == "search_commerce_knowledge":
+            result = search_commerce_knowledge(args.get("query", ""), top_k)
+        else:
+            return {
+                "jsonrpc": "2.0", "id": msg_id,
+                "error": {"code": -32601, "message": f"Unknown tool: {tool_name}"},
+            }
+        return {
+            "jsonrpc": "2.0", "id": msg_id,
+            "result": {"content": [{"type": "text", "text": result}]},
+        }
+    except Exception as e:
+        return {
+            "jsonrpc": "2.0", "id": msg_id,
+            "result": {"content": [{"type": "text", "text": f"Error: {e}"}], "isError": True},
+        }
 
 
 def handle(msg: dict):
@@ -302,12 +264,11 @@ def handle(msg: dict):
 
     if method == "initialize":
         return {
-            "jsonrpc": "2.0",
-            "id": msg_id,
+            "jsonrpc": "2.0", "id": msg_id,
             "result": {
                 "protocolVersion": "2024-11-05",
                 "capabilities": {"tools": {}},
-                "serverInfo": {"name": "commerce-brain", "version": "2.0.0"},
+                "serverInfo": {"name": "commerce-brain", "version": "3.0.0"},
             },
         }
 
@@ -316,105 +277,19 @@ def handle(msg: dict):
 
     if method == "tools/call":
         params = msg.get("params", {})
-        tool_name = params.get("name")
-        args = params.get("arguments", {})
-
         if not _is_active():
             return {
-                "jsonrpc": "2.0",
-                "id": msg_id,
+                "jsonrpc": "2.0", "id": msg_id,
                 "result": {"content": [{"type": "text", "text": NOT_ACTIVE_MSG}]},
             }
-
-        if tool_name == "search_db_schema":
-            table_name = args.get("table_name", "")
-            try:
-                result = search_db_schema(table_name)
-                return {
-                    "jsonrpc": "2.0",
-                    "id": msg_id,
-                    "result": {"content": [{"type": "text", "text": result}]},
-                }
-            except Exception as e:
-                return {
-                    "jsonrpc": "2.0",
-                    "id": msg_id,
-                    "result": {
-                        "content": [{"type": "text", "text": f"Error: {e}"}],
-                        "isError": True,
-                    },
-                }
-
-        if tool_name == "search_saas_schema":
-            query = args.get("query", "")
-            top_k = min(int(args.get("top_k", 5)), 10)
-            try:
-                result = search_saas_schema(query, top_k)
-                return {
-                    "jsonrpc": "2.0",
-                    "id": msg_id,
-                    "result": {"content": [{"type": "text", "text": result}]},
-                }
-            except Exception as e:
-                return {
-                    "jsonrpc": "2.0",
-                    "id": msg_id,
-                    "result": {
-                        "content": [{"type": "text", "text": f"Error: {e}"}],
-                        "isError": True,
-                    },
-                }
-
-        if tool_name == "search_kibana_queries":
-            query = args.get("query", "")
-            top_k = min(int(args.get("top_k", 5)), 10)
-            try:
-                result = search_kibana(query, top_k)
-                return {
-                    "jsonrpc": "2.0",
-                    "id": msg_id,
-                    "result": {"content": [{"type": "text", "text": result}]},
-                }
-            except Exception as e:
-                return {
-                    "jsonrpc": "2.0",
-                    "id": msg_id,
-                    "result": {
-                        "content": [{"type": "text", "text": f"Error: {e}"}],
-                        "isError": True,
-                    },
-                }
-
-        if tool_name == "search_commerce_knowledge":
-            query = args.get("query", "")
-            top_k = min(int(args.get("top_k", 5)), 10)
-            try:
-                result = call_search(query, top_k)
-                return {
-                    "jsonrpc": "2.0",
-                    "id": msg_id,
-                    "result": {"content": [{"type": "text", "text": result}]},
-                }
-            except Exception as e:
-                return {
-                    "jsonrpc": "2.0",
-                    "id": msg_id,
-                    "result": {
-                        "content": [{"type": "text", "text": f"Error: {e}"}],
-                        "isError": True,
-                    },
-                }
-
-        return {
-            "jsonrpc": "2.0",
-            "id": msg_id,
-            "error": {"code": -32601, "message": f"Unknown tool: {tool_name}"},
-        }
-
-    if method == "notifications/initialized":
-        return None
+        return _dispatch(params.get("name"), params.get("arguments", {}), msg_id)
 
     return None
+
+
+def send(obj: dict):
+    sys.stdout.write(json.dumps(obj) + "\n")
+    sys.stdout.flush()
 
 
 def main():
