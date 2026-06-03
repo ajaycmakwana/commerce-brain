@@ -11,16 +11,19 @@ import json
 import pickle
 import re
 import sys
+import time
 from pathlib import Path
 
 BRAIN_DIR = Path(__file__).parent
+FLAG_FILE = Path("/tmp/commerce_brain_active")
+FLAG_TTL = 300  # 5 minutes — expires after session context clears
 COMMERCE_INDEX = BRAIN_DIR / "commerce_brain.pkl"
 KIBANA_INDEX = BRAIN_DIR / "kibana_brain.pkl"
 SAAS_INDEX = BRAIN_DIR / "saas_brain.pkl"
 
 MIN_SCORE_COMMERCE = 8.0   # higher — command files are noise at low scores
-MIN_SCORE_KIBANA = 4.0
-MIN_SCORE_SAAS = 2.0
+MIN_SCORE_KIBANA = 7.0
+MIN_SCORE_SAAS = 5.0
 TOP_K = 4
 
 # Command PHP files (229 of 529) match on generic words — exclude from hook injection.
@@ -108,27 +111,39 @@ def main():
     if len(prompt) < 8:
         sys.exit(0)
 
+    # Only fire when user explicitly invokes with @commercebrain
+    if "@commercebrain" not in prompt.lower():
+        sys.exit(0)
+
+    # Write flag file so MCP tools know Commerce Brain is active for this session
+    FLAG_FILE.write_text(str(time.time()))
+
+    # Strip the trigger word before BM25 search
+    clean_prompt = prompt.lower().replace("@commercebrain", "").strip()
+
     commerce_store = _load(COMMERCE_INDEX)
     kibana_store = _load(KIBANA_INDEX)
     saas_store = _load(SAAS_INDEX)
 
-    commerce_results = _search(commerce_store, prompt, MIN_SCORE_COMMERCE, EXCLUDE_FILE_TYPES)
-    kibana_results = _search(kibana_store, prompt, MIN_SCORE_KIBANA)
-    saas_results = _search(saas_store, prompt, MIN_SCORE_SAAS)
+    commerce_results = _search(commerce_store, clean_prompt, MIN_SCORE_COMMERCE, EXCLUDE_FILE_TYPES)
+    kibana_results = _search(kibana_store, clean_prompt, MIN_SCORE_KIBANA)
+    saas_results = _search(saas_store, clean_prompt, MIN_SCORE_SAAS)
+
+    if not commerce_results and not kibana_results and not saas_results:
+        sys.exit(0)
 
     sections = [
         "## COMMERCE BRAIN AUTO-CONTEXT",
-        "⚠️ CRITICAL INSTRUCTIONS — READ BEFORE ANSWERING:",
-        "1. Do NOT ask clarifying questions. Answer directly from the results below.",
-        "2. Do NOT use training knowledge. All field names, table names, index names, and query patterns MUST come from the results below.",
-        "3. Construct SQL and ES queries by reading the schemas and examples below, then adapting them to the question.",
-        "4. Do NOT execute SQL queries, Bash commands, or live API/MCP tool calls (grpc_*, ls_product_search, cs_products_by_sku, etc.) unless the user explicitly asks you to run them. Provide the query/command — the user runs it and shares the result.",
+        "INSTRUCTIONS:",
+        "1. Answer using only the injected results below — no training knowledge for table names, columns, field paths, or CLI commands.",
+        "2. Call `search_db_schema(table_name)` before writing any column name in SQL. No exceptions.",
+        "3. Provide queries and commands as text only — never execute them. User runs them and shares results.",
         "",
         "### ARCHITECTURE FACTS (not in the index — these override training knowledge):",
         "- Live Search ES index: `catalog_1_{ENV_ID}_{STORE_CODE}_{HASH}`. Never `magento2_product_*` or `localhost:9200`.",
         "- Adobe Commerce EE/Cloud: EAV join field is `row_id`, not `entity_id` (CE uses entity_id).",
         "",
-        f"Query: {prompt[:300]!r}",
+        f"Query: {clean_prompt[:300]!r}",
         "",
     ]
 
@@ -144,10 +159,7 @@ def main():
         sections.append(format_saas(saas_results))
         sections.append("")
 
-    if commerce_results or kibana_results or saas_results:
-        sections.append("END OF COMMERCE BRAIN AUTO-CONTEXT — answer using only the above.")
-    else:
-        sections.append("END OF COMMERCE BRAIN AUTO-CONTEXT — no indexed results matched this query; call the knowledge tools directly.")
+    sections.append("END OF COMMERCE BRAIN AUTO-CONTEXT — answer using only the above.")
 
     print("\n".join(sections))
 

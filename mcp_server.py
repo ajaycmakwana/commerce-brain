@@ -18,9 +18,31 @@ import json
 import pickle
 import re
 import sys
+import time
 import urllib.request
 import urllib.parse
 from pathlib import Path
+
+FLAG_FILE = Path("/tmp/commerce_brain_active")
+FLAG_TTL = 300  # 5 minutes
+
+
+def _is_active() -> bool:
+    """Return True if Commerce Brain was explicitly invoked (@commercebrain) recently."""
+    try:
+        if not FLAG_FILE.exists():
+            return False
+        age = time.time() - float(FLAG_FILE.read_text().strip())
+        return age < FLAG_TTL
+    except Exception:
+        return False
+
+
+NOT_ACTIVE_MSG = (
+    "Commerce Brain is not active for this query.\n"
+    "To invoke it, start your message with @commercebrain — e.g.:\n"
+    "  @commercebrain bundle products disappearing from Live Search after resync"
+)
 
 SEARCH_URL = (
     "https://development-200136-commercebrain-stage.dev.runtime.adobe.io"
@@ -32,6 +54,41 @@ _kibana_store = None
 
 SAAS_INDEX_FILE = Path(__file__).parent / "saas_brain.pkl"
 _saas_store = None
+
+COMMERCE_INDEX_FILE = Path(__file__).parent / "commerce_brain.pkl"
+_commerce_store = None
+
+
+def _get_commerce_store():
+    global _commerce_store
+    if _commerce_store is None and COMMERCE_INDEX_FILE.exists():
+        with open(COMMERCE_INDEX_FILE, "rb") as fh:
+            _commerce_store = pickle.load(fh)
+    return _commerce_store
+
+
+def search_db_schema(table_name: str) -> str:
+    store = _get_commerce_store()
+    if not store:
+        return "Commerce index not found. Run: python3 index_build.py"
+
+    suffix = f":: {table_name.strip()}"
+    matches = [d for d in store["docs"]
+               if d.get("file_type") == "db_schema" and d.get("path", "").endswith(suffix)]
+
+    if not matches:
+        return (
+            f"Table `{table_name}` not found in Commerce Brain index.\n"
+            f"Verify the table name — run DESCRIBE {table_name}; in MySQL to confirm it exists."
+        )
+
+    lines = [f"Schema for `{table_name}` — {len(matches)} source(s):\n"]
+    for d in matches:
+        repo_path = d["path"].split(" :: ")[0]
+        lines.append(f"**{repo_path}**")
+        lines.append(d["content"].strip())
+        lines.append("\n---\n")
+    return "\n".join(lines)
 
 
 def _get_saas_store():
@@ -106,6 +163,26 @@ def search_kibana(query: str, top_k: int = 5) -> str:
     return "\n".join(lines)
 
 TOOLS = [
+    {
+        "name": "search_db_schema",
+        "description": (
+            "Exact column lookup for any Adobe Commerce database table. "
+            "Returns the full column list, types, indexes, and constraints from db_schema.xml. "
+            "MUST be called before writing any SQL query — do not write a column name without calling this first. "
+            "If the table is not found, returns a DESCRIBE fallback instruction. "
+            "Covers all tables across magento2ce, magento2ee, commerce-data-export, and related repos."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "table_name": {
+                    "type": "string",
+                    "description": "Exact table name — e.g. 'cde_products_feed', 'catalog_product_entity', 'cataloginventory_stock_item'",
+                },
+            },
+            "required": ["table_name"],
+        },
+    },
     {
         "name": "search_saas_schema",
         "description": (
@@ -241,6 +318,32 @@ def handle(msg: dict):
         params = msg.get("params", {})
         tool_name = params.get("name")
         args = params.get("arguments", {})
+
+        if not _is_active():
+            return {
+                "jsonrpc": "2.0",
+                "id": msg_id,
+                "result": {"content": [{"type": "text", "text": NOT_ACTIVE_MSG}]},
+            }
+
+        if tool_name == "search_db_schema":
+            table_name = args.get("table_name", "")
+            try:
+                result = search_db_schema(table_name)
+                return {
+                    "jsonrpc": "2.0",
+                    "id": msg_id,
+                    "result": {"content": [{"type": "text", "text": result}]},
+                }
+            except Exception as e:
+                return {
+                    "jsonrpc": "2.0",
+                    "id": msg_id,
+                    "result": {
+                        "content": [{"type": "text", "text": f"Error: {e}"}],
+                        "isError": True,
+                    },
+                }
 
         if tool_name == "search_saas_schema":
             query = args.get("query", "")
