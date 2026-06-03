@@ -1,94 +1,73 @@
 #!/usr/bin/env python3
 """
 Claude Code UserPromptSubmit hook.
-On every prompt: searches Commerce Brain + Kibana Brain + SaaS Brain locally,
-injects relevant results as additionalContext before the agent sees the question.
+Fires when user types @commercebrain — calls App Builder endpoints,
+injects relevant results as context before the agent responds.
 
-Agent gets ground truth in context — no tool call decision, no training knowledge fallback.
+All search goes through App Builder (same as MCP tools).
+No local pkl files needed at runtime.
 """
 
 import json
-import pickle
-import re
 import sys
 import time
+import urllib.request
+import urllib.parse
 from pathlib import Path
 
-BRAIN_DIR = Path(__file__).parent
 FLAG_FILE = Path("/tmp/commerce_brain_active")
-FLAG_TTL = 300  # 5 minutes — expires after session context clears
-COMMERCE_INDEX = BRAIN_DIR / "commerce_brain.pkl"
-KIBANA_INDEX = BRAIN_DIR / "kibana_brain.pkl"
-SAAS_INDEX = BRAIN_DIR / "saas_brain.pkl"
+FLAG_TTL = 1800  # 30 minutes — covers full investigation sessions
 
-MIN_SCORE_COMMERCE = 8.0   # higher — command files are noise at low scores
+BASE_URL = (
+    "https://development-200136-commercebrain-stage.dev.runtime.adobe.io"
+    "/api/v1/web/app-builder"
+)
+
+MIN_SCORE_COMMERCE = 8.0
 MIN_SCORE_KIBANA = 7.0
 MIN_SCORE_SAAS = 5.0
 TOP_K = 4
 
-# Command PHP files (229 of 529) match on generic words — exclude from hook injection.
-# Agents can still call search_commerce_knowledge directly for CLI command queries.
-EXCLUDE_FILE_TYPES = {"command"}
 
-
-def _load(path):
+def _call(endpoint: str, query: str, top_k: int = TOP_K) -> list:
     try:
-        if path.exists():
-            with open(path, "rb") as f:
-                return pickle.load(f)
+        params = urllib.parse.urlencode({"query": query, "top_k": top_k})
+        url = f"{BASE_URL}/{endpoint}?{params}"
+        with urllib.request.urlopen(url, timeout=10) as resp:
+            data = json.loads(resp.read())
+        return data.get("results", [])
     except Exception:
-        pass
-    return None
-
-
-def _tokenize(text):
-    return [t for t in re.split(r"[^a-zA-Z0-9_]+", text.lower()) if len(t) > 2]
-
-
-def _search(store, query, min_score, exclude_types=None):
-    if not store:
         return []
-    tokens = _tokenize(query)
-    scores = store["bm25"].get_scores(tokens)
-    ranked = sorted(enumerate(scores), key=lambda x: x[1], reverse=True)
-    results = []
-    for idx, score in ranked:
-        if len(results) >= TOP_K:
-            break
-        if score < min_score:
-            break
-        doc = store["docs"][idx]
-        if exclude_types and doc.get("file_type") in exclude_types:
-            continue
-        results.append((round(score, 2), doc))
-    return results
 
 
 def format_commerce(results):
     lines = ["### Commerce Knowledge (schemas · indexers · CLI · SQL)"]
-    for score, doc in results:
-        header = f"**[{doc.get('file_type', '')}] {doc.get('repo', '')} — {doc.get('path', '')}** (score: {score})"
-        lines.append(header)
-        lines.append(f"```\n{doc['content'].strip()[:2000]}\n```")
-    return "\n".join(lines)
+    for r in results:
+        if r.get("score", 0) < MIN_SCORE_COMMERCE:
+            continue
+        lines.append(f"**[{r.get('file_type', '')}] {r.get('repo', '')} — {r.get('path', '')}** (score: {r.get('score', 0)})")
+        lines.append(f"```\n{r.get('content', '').strip()[:2000]}\n```")
+    return "\n".join(lines) if len(lines) > 1 else ""
 
 
 def format_kibana(results):
     lines = ["### Kibana Knowledge (ES query templates · catalog index schema)"]
-    for score, doc in results:
-        header = f"**[{doc.get('source', '')}] {doc.get('title', '')}** (score: {score})"
-        lines.append(header)
-        lines.append(doc["content"].strip()[:2000])
-    return "\n".join(lines)
+    for r in results:
+        if r.get("score", 0) < MIN_SCORE_KIBANA:
+            continue
+        lines.append(f"**[{r.get('source', '')}] {r.get('title', '')}** (score: {r.get('score', 0)})")
+        lines.append(r.get("content", "").strip()[:2000])
+    return "\n".join(lines) if len(lines) > 1 else ""
 
 
 def format_saas(results):
     lines = ["### SaaS API Schema (CS GraphQL · gRPC · PREX REST)"]
-    for score, doc in results:
-        header = f"**[{doc.get('source', '')}] {doc.get('title', '')}** (score: {score})"
-        lines.append(header)
-        lines.append(doc["content"].strip()[:2000])
-    return "\n".join(lines)
+    for r in results:
+        if r.get("score", 0) < MIN_SCORE_SAAS:
+            continue
+        lines.append(f"**[{r.get('source', '')}] {r.get('title', '')}** (score: {r.get('score', 0)})")
+        lines.append(r.get("content", "").strip()[:2000])
+    return "\n".join(lines) if len(lines) > 1 else ""
 
 
 def main():
@@ -111,25 +90,26 @@ def main():
     if len(prompt) < 8:
         sys.exit(0)
 
-    # Only fire when user explicitly invokes with @commercebrain
     if "@commercebrain" not in prompt.lower():
         sys.exit(0)
 
-    # Write flag file so MCP tools know Commerce Brain is active for this session
+    # Write flag — MCP tools check this before responding
     FLAG_FILE.write_text(str(time.time()))
 
-    # Strip the trigger word before BM25 search
     clean_prompt = prompt.lower().replace("@commercebrain", "").strip()
+    if not clean_prompt:
+        sys.exit(0)
 
-    commerce_store = _load(COMMERCE_INDEX)
-    kibana_store = _load(KIBANA_INDEX)
-    saas_store = _load(SAAS_INDEX)
+    # Call App Builder endpoints (same source as MCP tools)
+    commerce_results = _call("search", clean_prompt, TOP_K)
+    kibana_results = _call("search-kibana", clean_prompt, TOP_K)
+    saas_results = _call("search-saas", clean_prompt, TOP_K)
 
-    commerce_results = _search(commerce_store, clean_prompt, MIN_SCORE_COMMERCE, EXCLUDE_FILE_TYPES)
-    kibana_results = _search(kibana_store, clean_prompt, MIN_SCORE_KIBANA)
-    saas_results = _search(saas_store, clean_prompt, MIN_SCORE_SAAS)
+    commerce_block = format_commerce(commerce_results)
+    kibana_block = format_kibana(kibana_results)
+    saas_block = format_saas(saas_results)
 
-    if not commerce_results and not kibana_results and not saas_results:
+    if not any([commerce_block, kibana_block, saas_block]):
         sys.exit(0)
 
     sections = [
@@ -147,16 +127,16 @@ def main():
         "",
     ]
 
-    if commerce_results:
-        sections.append(format_commerce(commerce_results))
+    if commerce_block:
+        sections.append(commerce_block)
         sections.append("")
 
-    if kibana_results:
-        sections.append(format_kibana(kibana_results))
+    if kibana_block:
+        sections.append(kibana_block)
         sections.append("")
 
-    if saas_results:
-        sections.append(format_saas(saas_results))
+    if saas_block:
+        sections.append(saas_block)
         sections.append("")
 
     sections.append("END OF COMMERCE BRAIN AUTO-CONTEXT — answer using only the above.")
