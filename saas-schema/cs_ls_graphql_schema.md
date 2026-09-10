@@ -4,7 +4,7 @@
 
 **Purpose:** Ground truth for all CS/LS/PREX GraphQL queries available at `catalog-service.adobe.io/graphql`.
 **Use this when:** You need to know query args, field names, response shape, or gotchas before calling the API.
-**Source:** Verified 2026-05-27 against environment `bbfd3c12-0280-4444-a055-8d1e5281e39e`.
+**Source:** Verified 2026-05-27 against a live merchant environment (identifier redacted).
 **Key rule:** Response structure is Adobe-defined and stable across all merchant environments. Only values differ.
 
 ---
@@ -231,7 +231,7 @@ Response shape identical to `recommendations` — same `Recommendations` type wi
 Get unitIds from `recommendations(pageType: ...)` first → extract `results[].unitId` values.
 
 ```graphql
-{ recommendationsByUnitIds(unitIds: ["e6c3f869-1ff4-4060-bc87-6da01c2415d3"], currentSku: "24-MB01") {
+{ recommendationsByUnitIds(unitIds: ["11111111-1111-4111-8111-111111111111"], currentSku: "24-MB01") {
     results { unitId unitName typeId storefrontLabel totalProducts productsView { __typename ... on SimpleProductView { sku name } } }
     totalResults
 } }

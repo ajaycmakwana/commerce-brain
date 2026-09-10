@@ -20,8 +20,8 @@ catalog_1_{ENV_ID}_{STORE_VIEW_CODE}_{HASH}
 | Segment | Description | Example |
 |---|---|---|
 | `catalog_1_` | Fixed prefix for all Live Search catalog indexes | — |
-| `{ENV_ID}` | Merchant's SaaS environment UUID | `5473b108-b314-4b97-9b51-1b62179034f8` |
-| `{STORE_VIEW_CODE}` | Magento store view code | `default`, `en_gb`, `hookah_b2b`, `de_de` |
+| `{ENV_ID}` | Merchant's SaaS environment UUID | `00000000-0000-4000-8000-000000000000` |
+| `{STORE_VIEW_CODE}` | Magento store view code | `default`, `en_gb`, `acme_b2b`, `de_de` |
 | `{HASH}` | 8-char alias hash — changes on full reindex | `3d166cb8` |
 
 **Find all indexes for a merchant env:**
@@ -38,7 +38,7 @@ Two schema variants exist in production:
 | Variant | When used | Key difference |
 |---|---|---|
 | **Standard** | Most merchants, all store views | Top-level `displayable`, `productoverride`, `filterable` (nested) |
-| **Statistics/Ranking** | Recommendation-enriched indexes (e.g. vijay_sales pattern) | Same top-level fields + `statisticsByView`, extended `sortable`, different `filterable` sub-fields |
+| **Statistics/Ranking** | Recommendation-enriched indexes (e.g. acme_stats pattern) | Same top-level fields + `statisticsByView`, extended `sortable`, different `filterable` sub-fields |
 
 Both variants share the same 25+ top-level fields. The statistics variant adds `statisticsByView`.
 
@@ -139,7 +139,7 @@ Both variants share the same 25+ top-level fields. The statistics variant adds `
 | `sortable.department` | `keyword` (case-insensitive) | Sort by department |
 | `sortable.sku` | `keyword` | SKU in sortable object — **can be null** |
 
-*Statistics-variant indexes add (confirmed from vijay_sales real data):* `sortable.discount_percentage`, `sortable.offer_price`, `sortable.vsp`, `sortable.brand`, `sortable.is_offer_available`, `sortable.vs_loyalty`, `sortable.is_child`. Additional merchant-specific fields may appear — they are dynamic and vary per merchant.*
+*Statistics-variant indexes add (confirmed from acme_stats real data):* `sortable.discount_percentage`, `sortable.offer_price`, `sortable.vsp`, `sortable.brand`, `sortable.is_offer_available`, `sortable.vs_loyalty`, `sortable.is_child`. Additional merchant-specific fields may appear — they are dynamic and vary per merchant.*
 
 ---
 
@@ -196,8 +196,8 @@ Both variants share the same 25+ top-level fields. The statistics variant adds `
 
 | Sub-field | Notes |
 |---|---|
-| `viewModel.websiteCode` | Website code (e.g. `"base"`, `"hookah_wholesalers"`) |
-| `viewModel.storeViewCode` | Store view code (e.g. `"default"`, `"hookah_b2b"`) |
+| `viewModel.websiteCode` | Website code (e.g. `"base"`, `"acme_wholesale"`) |
+| `viewModel.storeViewCode` | Store view code (e.g. `"default"`, `"acme_b2b"`) |
 | `viewModel.productId` | **Actual Magento product ID (integer)** — use this when `_id` is a SKU string (B2B indexes) |
 | `viewModel.type` | Product type: `"simple"`, `"configurable"`, `"grouped"`, `"bundle"`, `"virtual"`, `"downloadable"` |
 | `viewModel.sku` | SKU string |
@@ -304,4 +304,4 @@ Keys are SHA1 customer group hashes (e.g. `"f1f836cb4ea6efb2a0b1b99f41ad8b103eff
 
 13. **`storeViewCode` and `websiteCode` are NOT top-level fields** — confirmed from real data: querying `_source: ["storeViewCode", "websiteCode"]` returns nothing. These values live inside `viewModel.storeViewCode` and `viewModel.websiteCode`. Same for `customerGroupPermissions` — this field does not exist; customer group data is in `productoverride.*` (flat dotted keys) and `viewModel.productOverrides` (nested object keyed by SHA1 group hashes).
 
-14. **`product.default.*` path not confirmed** — the `product.default.displayable` schema variant was NOT found in any of the three tested environments (standard, B2B, vijay_sales statistics). All tested indexes use top-level `displayable`. Always check the mapping (1.7) before assuming this path exists.
+14. **`product.default.*` path not confirmed** — the `product.default.displayable` schema variant was NOT found in any of the three tested environments (standard, B2B, acme_stats statistics). All tested indexes use top-level `displayable`. Always check the mapping (1.7) before assuming this path exists.

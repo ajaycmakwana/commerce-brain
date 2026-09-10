@@ -1310,7 +1310,7 @@ GET /_cat/tasks?v&detailed&h=action,description,start_time,running_time,node
 
 ## TIER 12 — Schema Variant: Statistics/Ranking Index (product.default.* path)
 
-**Not confirmed in any tested environment.** In all three testing env indexes (standard, B2B, vijay_sales statistics variant), `displayable` is a top-level field — the `product.default.*` path was NOT present. These templates exist as a precaution: before using them, run template 1.7 (`_mapping`) and grep the result for `product.default`. Only use Tier 12 if you see `product.default.displayable` in the actual mapping.
+**Not confirmed in any tested environment.** In all three testing env indexes (standard, B2B, acme_stats statistics variant), `displayable` is a top-level field — the `product.default.*` path was NOT present. These templates exist as a precaution: before using them, run template 1.7 (`_mapping`) and grep the result for `product.default`. Only use Tier 12 if you see `product.default.displayable` in the actual mapping.
 
 ### 12.1 Check displayable status (product.default.* schema)
 ```
@@ -1461,7 +1461,7 @@ GET /catalog_1_{ENV_ID}_{STORE_CODE}_{HASH}/_search
   }
 }
 ```
-*`categories` as a top-level field was NOT found in any tested environment (standard, B2B, vijay_sales). Category data is stored in `categoryData` (nested) and `filterable.categoryIds` (nested). Try template 14.1 or 3.1 first. Use 14.2 only if the mapping shows a top-level `categories` field.*
+*`categories` as a top-level field was NOT found in any tested environment (standard, B2B, acme_stats). Category data is stored in `categoryData` (nested) and `filterable.categoryIds` (nested). Try template 14.1 or 3.1 first. Use 14.2 only if the mapping shows a top-level `categories` field.*
 
 ---
 

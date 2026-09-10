@@ -16,7 +16,7 @@ No Bearer token or Magento headers required.
 
 ```json
 {
-  "environmentId": "bbfd3c12-0280-4444-a055-8d1e5281e39e",
+  "environmentId": "00000000-0000-4000-8000-000000000000",
   "alternateEnvironmentId": "",
   "storeCode": "main_website_store",
   "storeViewCode": "default",
@@ -52,7 +52,7 @@ No Bearer token or Magento headers required.
   "totalResults": 3,
   "results": [
     {
-      "unitId": "e6c3f869-1ff4-4060-bc87-6da01c2415d3",
+      "unitId": "11111111-1111-4111-8111-111111111111",
       "unitName": "Most Purchased",
       "unitType": "primary",
       "searchTime": 12,
@@ -115,7 +115,7 @@ Both PREX REST and CS GraphQL `recommendations` / `recommendationsByUnitIds` ret
 2. Pass unitId to `recommendationsByUnitIds` in CS GraphQL to get full `productsView` with price/stock inline
 
 ```graphql
-{ recommendationsByUnitIds(unitIds: ["e6c3f869-1ff4-4060-bc87-6da01c2415d3"], currentSku: "24-MB01") {
+{ recommendationsByUnitIds(unitIds: ["11111111-1111-4111-8111-111111111111"], currentSku: "24-MB01") {
     results {
       unitId unitName typeId storefrontLabel totalProducts
       productsView {
