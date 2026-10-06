@@ -7,16 +7,18 @@ indexer.xml, Model/Query/*.php, Console/Command/*.php
 Output: commerce_brain.pkl  (BM25 index + document store)
 """
 
+import os
 import pickle
 import re
 import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-from rank_bm25 import BM25Okapi
+from index_metadata import build_metadata
 
 BRAIN_DIR = Path(__file__).parent
-REPOS_DIR = Path.home() / "Claude" / "commerce-brain-resources"
+SOURCE_DIR = Path(os.environ.get("COMMERCE_BRAIN_SOURCE_DIR", BRAIN_DIR / "sources")).expanduser()
+REPOS_DIR = (SOURCE_DIR if SOURCE_DIR.is_absolute() else BRAIN_DIR / SOURCE_DIR).resolve()
 INDEX_FILE = BRAIN_DIR / "commerce_brain.pkl"
 
 MATCHERS = [
@@ -28,7 +30,7 @@ MATCHERS = [
     ("command",  lambda p: p.suffix == ".php" and p.parent.name == "Command" and p.parent.parent.name == "Console"),
 ]
 
-SKIP_DIRS = {"app-builder", ".git"}
+SKIP_DIRS = {"app-builder", ".git", "copilot-worktrees"}
 COMMERCE_QUERIES_DIR = BRAIN_DIR / "commerce_queries"
 
 
@@ -39,27 +41,40 @@ def tokenize(text: str) -> list[str]:
 
 def chunk_db_schema(content: str, rel_path: str, repo: str) -> list[dict]:
     """Split db_schema.xml into one chunk per <table> element.
-    Falls back to a single chunk if XML is unparseable."""
+    Recover complete table blocks from malformed or namespace-qualified XML."""
+    def make_chunk(table_name: str, table_xml: str) -> dict:
+        return {
+            "repo": repo,
+            "file_type": "db_schema",
+            "path": f"{rel_path} :: {table_name}",
+            "content": f"<!-- {rel_path} :: {table_name} -->\n{table_xml}",
+            "tokens": tokenize(f"{table_name} {table_xml}"),
+        }
+
     try:
         root = ET.fromstring(content)
     except ET.ParseError:
+        chunks = []
+        for match in re.finditer(r"<table\b[^>]*>[\s\S]*?</table\s*>", content):
+            table_xml = match.group(0)
+            opening_tag = table_xml.split(">", 1)[0] + ">"
+            name_match = re.search(r"(?:^|\s)name\s*=\s*(['\"])(.*?)\1", opening_tag)
+            if name_match:
+                chunks.append(make_chunk(name_match.group(2), table_xml))
+        if chunks:
+            return chunks
         return [{"repo": repo, "file_type": "db_schema", "path": rel_path,
                  "content": content, "tokens": tokenize(content)}]
 
     chunks = []
-    for table_elem in root.findall("table"):
+    for table_elem in root.iter():
+        if table_elem.tag.rsplit("}", 1)[-1] != "table":
+            continue
         table_name = table_elem.get("name", "")
         if not table_name:
             continue
         table_xml = ET.tostring(table_elem, encoding="unicode")
-        chunk_content = f"<!-- {rel_path} :: {table_name} -->\n{table_xml}"
-        chunks.append({
-            "repo": repo,
-            "file_type": "db_schema",
-            "path": f"{rel_path} :: {table_name}",
-            "content": chunk_content,
-            "tokens": tokenize(f"{table_name} {table_xml}"),
-        })
+        chunks.append(make_chunk(table_name, table_xml))
     # fallback if no <table> elements found (schema with only DDL patches etc.)
     if not chunks:
         chunks.append({"repo": repo, "file_type": "db_schema", "path": rel_path,
@@ -114,23 +129,31 @@ def collect_docs():
                                 "content": content,
                                 "tokens": tokenize(content),
                             })
-                    except Exception as e:
-                        print(f"  Error reading {f}: {e}")
+                    except OSError as error:
+                        raise RuntimeError(f"Could not read source document {f}: {error}") from error
 
     docs.extend(collect_sql_queries())
     return docs
 
 
 def build_index(docs):
+    from rank_bm25 import BM25Okapi
+
     corpus = [d["tokens"] for d in docs]
     bm25 = BM25Okapi(corpus)
     return bm25
 
 
 def main():
+    if not REPOS_DIR.is_dir():
+        print(f"ERROR: Commerce source directory not found: {REPOS_DIR}")
+        print("Set COMMERCE_BRAIN_SOURCE_DIR or run setup.sh to populate it.")
+        sys.exit(1)
+
     docs = collect_docs()
-    if not docs:
-        print("ERROR: No documents found. Run clone_commerce_repos.sh first.")
+    if not docs or not any(doc["file_type"] == "db_schema" for doc in docs):
+        print(f"ERROR: No Commerce documents found under {REPOS_DIR}.")
+        print("A Commerce index requires source documents including db_schema declarations.")
         sys.exit(1)
 
     print(f"Indexed {len(docs)} files")
@@ -143,7 +166,13 @@ def main():
     print("Building BM25 index...")
     bm25 = build_index(docs)
 
-    store = {"bm25": bm25, "docs": docs}
+    repos = sorted(d for d in REPOS_DIR.iterdir() if d.is_dir() and d.name not in SKIP_DIRS)
+    provenance_paths = repos + ([BRAIN_DIR] if COMMERCE_QUERIES_DIR.exists() else [])
+    store = {
+        "bm25": bm25,
+        "docs": docs,
+        "metadata": build_metadata(provenance_paths),
+    }
     with open(INDEX_FILE, "wb") as fh:
         pickle.dump(store, fh)
 

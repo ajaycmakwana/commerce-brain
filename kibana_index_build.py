@@ -16,6 +16,8 @@ import re
 import sys
 from pathlib import Path
 
+from index_metadata import build_metadata
+
 BRAIN_DIR = Path(__file__).parent
 INDEX_FILE = BRAIN_DIR / "kibana_brain.pkl"
 
@@ -68,10 +70,12 @@ def chunk_by_h2(content: str, source: str) -> list[dict]:
 
 def collect_docs() -> list[dict]:
     docs = []
+    missing = [path for path in SOURCES if not path.is_file()]
+    if missing:
+        raise FileNotFoundError(
+            "Required Kibana sources missing: " + ", ".join(str(path) for path in missing)
+        )
     for path in SOURCES:
-        if not path.exists():
-            print(f"  WARNING: {path} not found — skipping")
-            continue
         content = path.read_text(errors="ignore")
         source = path.stem
         if path.name == "query_templates.md":
@@ -95,7 +99,11 @@ def main():
     corpus = [d["tokens"] for d in docs]
     bm25 = BM25Okapi(corpus)
 
-    store = {"bm25": bm25, "docs": docs}
+    store = {
+        "bm25": bm25,
+        "docs": docs,
+        "metadata": build_metadata([BRAIN_DIR]),
+    }
     with open(INDEX_FILE, "wb") as fh:
         pickle.dump(store, fh)
 

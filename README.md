@@ -1,119 +1,71 @@
 # Commerce Brain
 
-> Search Adobe Commerce source code and Live Search ES queries from inside Claude / Cursor in < 0.1s.
+Commerce Brain provides BM25 search over bundled Adobe Commerce source references, Live Search Elasticsearch query examples, and Adobe Commerce SaaS API schemas. Clients connect to the MCP stdio server; search is performed by the configured Adobe I/O Runtime (App Builder) actions against JSON indexes bundled with those actions.
 
-Two MCP tools — no API key, no external services, fully within Adobe infrastructure:
+The tools return reference material. They do not query a merchant database, Elasticsearch cluster, or SaaS API, and they do not execute SQL or commands. The stage actions are configured with `require-adobe-auth: false` for the intended internal team use; that setting is not perimeter access control.
 
-| Tool | What it does |
-|------|-------------|
-| `search_commerce_knowledge` | BM25 over 529 Commerce source files — table schemas, indexers, feed structures, CLI commands, SQL patterns |
-| `search_kibana_queries` | BM25 over Live Search ES query templates and catalog index schema — ready to adapt for Kibana investigation |
+## Install an MCP client
 
----
-
-## Setup (one time, ~10 min)
+Python 3 is required. Clone this repository, then select the client(s) to configure:
 
 ```bash
-git clone https://github.com/ajaycmakwana/commerce-brain ~/commerce-brain
-cd ~/commerce-brain
+git clone https://github.com/ajaycmakwana/commerce-brain.git
+cd commerce-brain
+bash install.sh copilot
+# Or select more than one: bash install.sh copilot,claude-code,vscode
+```
+
+The installer preserves unrelated JSON settings, replaces a stale `commerce-brain` entry, and writes atomically. It configures only the selected client:
+
+| Client | Configuration file | MCP server section |
+|---|---|---|
+| Copilot app/CLI | `~/.copilot/mcp-config.json` | `mcpServers` |
+| Claude Code | `~/.claude.json` | `mcpServers` |
+| Claude Desktop | platform-specific Claude config | `mcpServers` |
+| Cursor | `~/.cursor/mcp.json` | `mcpServers` |
+| VS Code | platform-specific user `settings.json` | `mcp.servers` |
+
+The Claude Code installer does not put `mcpServers` in `~/.claude/settings.json`. Restart the selected client after installation. The MCP server uses Python's standard library; no per-user index or Python search package is needed.
+
+For local Commerce-index maintainer checks after a build, `python3 search_cli.py "cde_products_feed columns"` searches the local Commerce pickle. It is not an MCP runtime path.
+
+## Available tools
+
+- `search_commerce_knowledge` — BM25 search over Commerce source, feed, indexer, mview, CLI, and query references.
+- `search_db_schema` — exact table-name lookup across every matching `db_schema.xml` table declaration, including source path and repository provenance. Results are not limited by BM25 ranking.
+- `search_kibana_queries` — BM25 search over Live Search Elasticsearch query examples and catalog-index reference material.
+- `search_saas_schema` — BM25 search over CS/Live Search GraphQL, CS gRPC, and PREX REST reference material.
+
+Exact table lookup is for source declarations in the built index, not a live merchant schema. The index can be out of date; check the generated manifest's source commit/ref and timestamp before relying on it.
+
+## Refresh and bundle all indexes
+
+An index maintainer needs Git access to the source repositories and Python with `rank-bm25`. Setup clones sources to `./sources` by default. Set `COMMERCE_BRAIN_SOURCE_DIR` to use another local source directory. Existing clean checkouts are only fast-forwarded on their current configured branch when Git proves the update is a fast-forward; dirty, detached, divergent, or non-target checkouts are left unchanged and reported.
+
+```bash
 bash setup.sh
 ```
 
-You'll be prompted for a GitHub PAT with **magento-sparta SAML SSO** access.  
-Then restart Claude Code / Cursor.
+`setup.sh` runs the complete local pipeline: build Commerce, Kibana, and SaaS BM25 indexes; export all three; copy them to their respective App Builder action bundles; write `app-builder/index-manifest.json`; and verify bundle hashes and structure. It does **not** deploy.
 
-> **Note:** Cloning the repo also installs `CLAUDE.md` — the agent rules that tell Claude the correct investigation order and query patterns. Do not skip the clone step.
+To run individual stages, use `index_build.py`, `kibana_index_build.py`, or `saas_index_build.py`, followed by the corresponding `export_*_json.py`. For the supported all-index workflow, prefer `python3 build_indexes.py`; verify artifacts with `python3 verify_indexes.py`.
 
----
+Commerce table schema chunks are exported in full. Other document content remains bounded for ordinary search. The shared action scorer uses term frequencies precomputed in the export while preserving the existing BM25 parameters and ranking behavior. Index metadata includes format/build version, build time, available source refs/commits, and source-checkout dirty state.
 
-## Agent Rules (CLAUDE.md)
+## Deployment
 
-The `CLAUDE.md` in the repo root loads automatically when Claude Code's working directory is inside the cloned repo. It tells the agent:
+Deployment is a separate, explicitly approved operation. Follow [DEPLOYMENT.md](DEPLOYMENT.md) for preflight, stage rollout order, version checks, and rollback. No build script deploys or uploads an index.
 
-- **Always follow the data flow:** `Magento DB → indexer → cde_products_feed → SaaS → Elasticsearch`  
-  Call `search_commerce_knowledge` first, `search_kibana_queries` second.
-- **Reason from tool results** — tools return domain knowledge (schemas, query structures). Agent derives SQL/ES queries from them. Does not dump raw XML.
-- **Use the right query pattern:** `"cde_products_feed feed schema fields"` not `"cde_products_feed db_schema columns"` — the latter matches test files in BM25.
-- **Call the tool first** — do not ask clarifying questions before calling. Get ground truth, then answer with placeholders.
+## Repository map
 
----
-
-## Usage — Live Search Investigation
-
-Ask naturally — agent calls both tools, follows the data flow, constructs the investigation:
-
-- *"Product is missing from Live Search — how to investigate?"*
-- *"How to check product in Commerce and ES if it is missing on the frontend?"*
-- *"No index was found for this request — what to check?"*
-- *"Product has wrong B2B price in Live Search"*
-
-Agent calls `search_commerce_knowledge` → gets feed table schema, indexer dependencies → derives SQL.  
-Then calls `search_kibana_queries` → gets ES query patterns → constructs Kibana queries.  
-Returns a complete investigation guide grounded in source truth.
-
----
-
-## Usage — Commerce Source Code
-
-- *"What columns does cde_products_feed have?"*
-- *"Which tables does the product feed indexer subscribe to?"*
-- *"Show me how SaaS resync command works"*
-- *"What CLI commands does Live Search expose?"*
-
----
-
-## Usage — CLI
-
-```bash
-python3 search_cli.py "cde_products_feed feed schema fields"
-python3 search_cli.py "saas resync command"
-python3 search_cli.py "catalog_data_exporter_products indexer dependencies"
-```
-
----
-
-## What's indexed
-
-### search_commerce_knowledge (529 files from 24 magento-sparta repos)
-
-| File type | Count | What it tells you |
-|-----------|-------|-------------------|
-| `Console/Command/*.php` | 229 | All CLI commands and their logic |
-| `etc/db_schema.xml` | 159 | Table columns, types, foreign keys |
-| `Model/Query/*.php` | 64 | DB query builders — exact SELECT patterns |
-| `etc/indexer.xml` | 25 | Indexer IDs, classes, dependencies |
-| `etc/mview.xml` | 25 | Which tables trigger which indexer |
-| `etc/et_schema.xml` | 17 | Feed field definitions sent to SaaS |
-| `commerce_queries/*.md` | 10 | SQL investigation patterns for feed tables |
-
-### search_kibana_queries (92 chunks)
-
-| Source | Chunks | What it provides |
-|--------|--------|-----------------|
-| `kibana/queries/query_templates.md` | 78 | ES query structures for catalog_1_* indexes |
-| `kibana/schema/catalog_index_schema.md` | 14 | Field types, nesting rules, schema gotchas |
-
----
-
-## Refresh index (after repos updated)
-
-```bash
-bash setup.sh   # re-runs clone + index build for both Commerce Brain and Kibana Brain
-```
-
----
-
-## Files
-
-| File | Purpose |
-|------|---------|
-| `mcp_server.py` | MCP stdio server — exposes both tools |
-| `setup.sh` | One-command setup |
-| `index_build.py` | Builds `commerce_brain.pkl` from cloned repos |
-| `kibana_index_build.py` | Builds `kibana_brain.pkl` from kibana/ docs |
-| `search_cli.py` | Terminal search tool for local testing |
-| `CLAUDE.md` | Agent rules — investigation order, query patterns, reasoning guidance |
-| `commerce_queries/` | SQL investigation query patterns |
-| `kibana/` | ES query templates and catalog index schema |
-| `commerce_brain.pkl` | Commerce BM25 index (generated, not committed) |
-| `kibana_brain.pkl` | Kibana BM25 index (generated, not committed) |
+| Path | Purpose |
+|---|---|
+| `mcp_server.py` | MCP JSON-RPC stdio server |
+| `install.sh` | Explicit, client-specific MCP configuration installer |
+| `setup.sh` / `build_indexes.py` | Safe source checkout refresh and all-index build/bundle pipeline |
+| `index_build.py`, `kibana_index_build.py`, `saas_index_build.py` | Source document collection and BM25 pickle builds |
+| `export_*_json.py`, `index_export.py` | Versioned JSON export with full schema declarations |
+| `verify_indexes.py` | Bundle/manifest preflight checks |
+| `app-builder/actions/` | Runtime search actions and bundled indexes (generated/ignored) |
+| `CLAUDE.md` | Commerce Brain agent usage guidance |
+| `WIKI.md` | Proposed replacement text for the internal wiki page |

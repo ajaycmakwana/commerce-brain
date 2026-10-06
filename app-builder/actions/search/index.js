@@ -1,52 +1,67 @@
 /*
  * Commerce Brain — Search Action (App Builder)
- * BM25 search over 519 Adobe Commerce source files.
+ * BM25 search over bundled Adobe Commerce source references.
  *
- * Index is bundled with the action (index.json, ~3.5 MB).
+ * Index is bundled with the action (index.json).
  * Loaded once on cold start and cached in memory.
  */
 
 const TOP_K = 5
-const K1 = 1.5
-const B = 0.75
-
 // Bundled by webpack at build time — no runtime file I/O needed
 const INDEX = require('./index.json')
-
-function tokenize(text) {
-  return text.toLowerCase().split(/[^a-zA-Z0-9_]+/).filter(t => t.length > 2)
-}
+const { tokenize, bm25Scores } = require('../bm25')
+const { validateQuery, validateTopK } = require('../request-validation')
+const { findTableDocuments, validateTableName } = require('../schema-lookup')
 
 function loadIndex() {
   return INDEX
 }
 
-function bm25Scores(queryTokens, store) {
-  const { docs, idf, avgdl } = store
-  return docs.map(doc => {
-    const dl = doc.tokens.length
-    let score = 0
-    for (const term of queryTokens) {
-      const termIdf = idf[term]
-      if (!termIdf) continue
-      const tf = doc.tokens.filter(t => t === term).length
-      score += termIdf * (tf * (K1 + 1)) / (tf + K1 * (1 - B + B * dl / avgdl))
-    }
-    return score
-  })
-}
-
-async function main(params) {
-  const query = (params.query || '').trim()
-  const topK = Math.min(parseInt(params.top_k || TOP_K, 10), 20)
-  const fileType = (params.file_type || '').trim()
-
+async function main(params = {}) {
   const headers = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
 
-  if (!query) {
-    return { statusCode: 400, headers, body: JSON.stringify({ error: 'query parameter is required' }) }
+  if (!params || typeof params !== 'object' || Array.isArray(params)) {
+    return { statusCode: 400, headers, body: JSON.stringify({ error: 'request parameters must be an object' }) }
   }
 
+  if (params.table_name !== undefined) {
+    const validatedTable = validateTableName(params.table_name)
+    if (validatedTable.error) {
+      return { statusCode: 400, headers, body: JSON.stringify({ error: validatedTable.error }) }
+    }
+    const matches = findTableDocuments(INDEX.docs, validatedTable.value).map(doc => ({
+      repo: doc.repo,
+      file_type: doc.file_type,
+      path: doc.path,
+      content: doc.content
+    }))
+    return {
+      statusCode: 200,
+      headers,
+      body: JSON.stringify({
+        query: validatedTable.value,
+        count: matches.length,
+        results: matches,
+        ...(matches.length ? {} : { error: `Table '${validatedTable.value}' not found in the bundled Commerce schema index` })
+      })
+    }
+  }
+
+  const queryInput = validateQuery(params.query)
+  if (queryInput.error) {
+    return { statusCode: 400, headers, body: JSON.stringify({ error: queryInput.error }) }
+  }
+  const topKInput = validateTopK(params.top_k, TOP_K, 20)
+  if (topKInput.error) {
+    return { statusCode: 400, headers, body: JSON.stringify({ error: topKInput.error }) }
+  }
+  if (params.file_type !== undefined && typeof params.file_type !== 'string') {
+    return { statusCode: 400, headers, body: JSON.stringify({ error: 'file_type must be a string' }) }
+  }
+
+  const query = queryInput.value
+  const topK = topKInput.value
+  const fileType = (params.file_type || '').trim()
   const store = loadIndex()
   const queryTokens = tokenize(query)
   const scores = bm25Scores(queryTokens, store)

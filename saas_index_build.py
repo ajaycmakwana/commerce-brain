@@ -15,9 +15,16 @@ import re
 import sys
 from pathlib import Path
 
+from index_metadata import build_metadata
+
 BRAIN_DIR = Path(__file__).parent
 INDEX_FILE = BRAIN_DIR / "saas_brain.pkl"
 SAAS_DIR = BRAIN_DIR / "saas-schema"
+REQUIRED_SOURCES = {
+    "cs_ls_graphql_schema.md",
+    "grpc_schema.md",
+    "prex_rest_schema.md",
+}
 
 
 def tokenize(text: str) -> list[str]:
@@ -45,8 +52,14 @@ def chunk_by_h2(content: str, source: str) -> list[dict]:
 def collect_docs() -> list[dict]:
     docs = []
     md_files = sorted(SAAS_DIR.glob("*.md"))
+    present_sources = {path.name for path in md_files}
+    missing_sources = sorted(REQUIRED_SOURCES - present_sources)
+    if missing_sources:
+        raise FileNotFoundError(
+            f"Required SaaS schema sources missing from {SAAS_DIR}: {', '.join(missing_sources)}"
+        )
     if not md_files:
-        print(f"  ERROR: No .md files found in {SAAS_DIR}")
+        print(f"ERROR: No .md files found in {SAAS_DIR}")
         return docs
     for path in md_files:
         content = path.read_text(errors="ignore")
@@ -69,7 +82,11 @@ def main():
     corpus = [d["tokens"] for d in docs]
     bm25 = BM25Okapi(corpus)
 
-    store = {"bm25": bm25, "docs": docs}
+    store = {
+        "bm25": bm25,
+        "docs": docs,
+        "metadata": build_metadata([BRAIN_DIR]),
+    }
     with open(INDEX_FILE, "wb") as fh:
         pickle.dump(store, fh)
 

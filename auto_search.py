@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Claude Code UserPromptSubmit hook.
-Fires when user types @commercebrain — calls App Builder endpoints,
+Optional Claude Code UserPromptSubmit hook.
+When the user types @commercebrain, calls App Builder endpoints,
 injects relevant results as context before the agent responds.
 
 All search goes through App Builder (same as MCP tools).
@@ -10,13 +10,8 @@ No local pkl files needed at runtime.
 
 import json
 import sys
-import time
 import urllib.request
 import urllib.parse
-from pathlib import Path
-
-FLAG_FILE = Path("/tmp/commerce_brain_active")
-FLAG_TTL = 1800  # 30 minutes — covers full investigation sessions
 
 BASE_URL = (
     "https://development-200136-commercebrain-stage.dev.runtime.adobe.io"
@@ -92,9 +87,6 @@ def main():
 
     if "@commercebrain" not in prompt.lower():
         sys.exit(0)
-
-    # Write flag — MCP tools check this before responding
-    FLAG_FILE.write_text(str(time.time()))
 
     clean_prompt = prompt.lower().replace("@commercebrain", "").strip()
     if not clean_prompt:
