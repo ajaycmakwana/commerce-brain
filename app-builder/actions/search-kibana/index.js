@@ -4,40 +4,26 @@
  */
 
 const TOP_K = 5
-const K1 = 1.5
-const B = 0.75
-
 const INDEX = require('./index.json')
+const { tokenize, bm25Scores } = require('../bm25')
+const { validateQuery, validateTopK } = require('../request-validation')
 
-function tokenize(text) {
-  return text.toLowerCase().split(/[^a-zA-Z0-9_]+/).filter(t => t.length > 2)
-}
-
-function bm25Scores(queryTokens, store) {
-  const { docs, idf, avgdl } = store
-  return docs.map(doc => {
-    const dl = doc.tokens.length
-    let score = 0
-    for (const term of queryTokens) {
-      const termIdf = idf[term]
-      if (!termIdf) continue
-      const tf = doc.tokens.filter(t => t === term).length
-      score += termIdf * (tf * (K1 + 1)) / (tf + K1 * (1 - B + B * dl / avgdl))
-    }
-    return score
-  })
-}
-
-async function main(params) {
-  const query = (params.query || '').trim()
-  const topK = Math.min(parseInt(params.top_k || TOP_K, 10), 10)
-
+async function main(params = {}) {
   const headers = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
-
-  if (!query) {
-    return { statusCode: 400, headers, body: JSON.stringify({ error: 'query parameter is required' }) }
+  if (!params || typeof params !== 'object' || Array.isArray(params)) {
+    return { statusCode: 400, headers, body: JSON.stringify({ error: 'request parameters must be an object' }) }
+  }
+  const queryInput = validateQuery(params.query)
+  if (queryInput.error) {
+    return { statusCode: 400, headers, body: JSON.stringify({ error: queryInput.error }) }
+  }
+  const topKInput = validateTopK(params.top_k, TOP_K, 10)
+  if (topKInput.error) {
+    return { statusCode: 400, headers, body: JSON.stringify({ error: topKInput.error }) }
   }
 
+  const query = queryInput.value
+  const topK = topKInput.value
   const store = INDEX
   const queryTokens = tokenize(query)
   const scores = bm25Scores(queryTokens, store)

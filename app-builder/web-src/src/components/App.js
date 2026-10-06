@@ -55,7 +55,7 @@ export default function App () {
       {/* Header */}
       <h1 style={{ fontSize: 26, fontWeight: 700, margin: '0 0 4px' }}>Commerce Brain</h1>
       <p style={{ color: '#666', marginTop: 4, marginBottom: 28, fontSize: 14 }}>
-        Search 519 Adobe Commerce source files — schemas, indexers, feeds, CLI commands, query models
+        Search indexed Adobe Commerce source references — schemas, indexers, feeds, CLI commands, and query models
       </p>
 
       {/* Search bar */}
@@ -143,7 +143,7 @@ export default function App () {
       {!results && !loading && !error && (
         <div style={{ textAlign: 'center', padding: '56px 0', color: '#bbb' }}>
           <div style={{ fontSize: 48 }}>🔍</div>
-          <p style={{ marginTop: 12, fontSize: 14 }}>Search source of truth — no API key, no hallucination</p>
+          <p style={{ marginTop: 12, fontSize: 14 }}>Search the bundled reference index; results may not match a merchant's deployed version.</p>
         </div>
       )}
     </div>

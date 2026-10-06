@@ -5,12 +5,14 @@ kibana_brain.pkl
 kibana_brain_index.json
 saas_brain.pkl
 saas_brain_index.json
+/sources/
 
 # App Builder — credentials, bundled indexes, build artifacts
 app-builder/.env
 app-builder/actions/search/index.json
 app-builder/actions/search-kibana/index.json
 app-builder/actions/search-saas/index.json
+app-builder/index-manifest.json
 app-builder/node_modules/
 app-builder/dist/
 200136-CommerceBrain-Stage.json
