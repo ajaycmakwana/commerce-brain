@@ -7,11 +7,14 @@ import math
 import sys
 from pathlib import Path
 
+from splunk_index_build import MAX_CONTENT, PLATFORMS, SERVICES, STATUSES
+
 APP_BUILDER = Path(__file__).parent / "app-builder"
 EXPECTED = {
     "commerce": ("actions/search/index.json", "full"),
     "kibana": ("actions/search-kibana/index.json", None),
     "saas": ("actions/search-saas/index.json", None),
+    "splunk": ("actions/search-splunk/index.json", None),
 }
 
 
@@ -119,12 +122,35 @@ def verify() -> list[str]:
                 errors.append(f"{name}: missing term frequencies at document position {index}.")
             if not isinstance(doc.get("content"), str):
                 errors.append(f"{name}: invalid content at document position {index}.")
+            if name == "splunk":
+                services = doc.get("services")
+                if not isinstance(services, list) or not services or any(
+                    not isinstance(service, str) or service not in SERVICES for service in services
+                ):
+                    errors.append(f"splunk: invalid service labels at position {index}.")
+                if doc.get("platform") not in tuple(PLATFORMS) or doc.get("validation_status") not in tuple(STATUSES):
+                    errors.append(f"splunk: invalid applicability/status at position {index}.")
+                if not isinstance(doc.get("source_url"), str) or not doc["source_url"].startswith("https://wiki.corp.adobe.com/"):
+                    errors.append(f"splunk: missing source URL at position {index}.")
+                revision = doc.get("source_revision")
+                if isinstance(revision, bool) or not isinstance(revision, int) or revision < 1:
+                    errors.append(f"splunk: missing source revision at position {index}.")
+                if doc.get("environment") not in ("prod", "nonprod", "any"):
+                    errors.append(f"splunk: invalid environment at position {index}.")
+                if any(not isinstance(doc.get(field), str) or not doc[field].strip()
+                       for field in ("id", "title", "source_title", "reviewed_at")):
+                    errors.append(f"splunk: missing provenance/identity at position {index}.")
+                content = doc.get("content")
+                if isinstance(content, str) and (len(content) > MAX_CONTENT or content.count("```") % 2):
+                    errors.append(f"splunk: oversized/truncated content at position {index}.")
         content_policy = data.get("content_policy")
         if not isinstance(content_policy, dict):
             errors.append(f"{name}: missing content policy.")
             content_policy = {}
         if required_schema_policy and content_policy.get("db_schema") != required_schema_policy:
             errors.append(f"{name}: db_schema content is not marked complete.")
+        if name == "splunk" and content_policy.get("splunk_reference") != "full":
+            errors.append("splunk: curated references are not marked complete.")
         if name == "commerce" and not any(
             isinstance(doc, dict) and doc.get("file_type") == "db_schema" for doc in docs
         ):
@@ -141,7 +167,7 @@ def main() -> int:
         for error in errors:
             print(f"ERROR: {error}", file=sys.stderr)
         return 1
-    print("All three bundled indexes match the manifest and passed structural checks.")
+    print("All four bundled indexes match the manifest and passed structural checks.")
     return 0
 
 

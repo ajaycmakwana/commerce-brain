@@ -28,7 +28,7 @@ class McpServerTests(unittest.TestCase):
             "params": {"protocolVersion": "2024-11-05"}
         })
         self.assertEqual(initialized["result"]["protocolVersion"], "2024-11-05")
-        self.assertEqual(initialized["result"]["serverInfo"]["version"], "4.1.0")
+        self.assertEqual(initialized["result"]["serverInfo"]["version"], "4.2.0")
         self.assertEqual(mcp_server.handle({"jsonrpc": "2.0", "id": 2, "method": "ping"})["result"], {})
         self.assertIsNone(mcp_server.handle({"jsonrpc": "2.0", "method": "notifications/initialized"}))
 

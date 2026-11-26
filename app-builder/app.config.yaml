@@ -33,3 +33,12 @@ application:
             annotations:
               require-adobe-auth: false
               final: true
+          search-splunk:
+            function: actions/search-splunk/index.js
+            web: 'yes'
+            runtime: nodejs:22
+            inputs:
+              LOG_LEVEL: debug
+            annotations:
+              require-adobe-auth: false
+              final: true

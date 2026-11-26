@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build the local reference indexes and bundle all three App Builder indexes.
+# Build the local reference indexes and bundle all four App Builder indexes.
 set -euo pipefail
 
 BRAIN_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -101,7 +101,7 @@ clone_or_update security-package-ee 1.0-develop
 
 unset GITHUB_TOKEN GIT_ASKPASS GIT_TERMINAL_PROMPT
 
-echo "Building, exporting, and bundling Commerce, Kibana, and SaaS indexes..."
+echo "Building, exporting, and bundling Commerce, Kibana, SaaS, and Splunk indexes..."
 python3 "$BRAIN_DIR/build_indexes.py"
 
 cat <<EOF
