@@ -111,7 +111,7 @@ class IndexPipelineTests(unittest.TestCase):
         self.assertEqual(dirty["source_provenance"], "partial")
         self.assertTrue(dirty["source_repositories"][0]["dirty"])
 
-    def test_pipeline_bundles_and_verifies_all_three_indexes(self):
+    def test_pipeline_bundles_and_verifies_all_four_indexes(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             app_builder = root / "app-builder"
@@ -119,6 +119,7 @@ class IndexPipelineTests(unittest.TestCase):
                 ("commerce", "commerce.pkl", "commerce.json", "search", "", ""),
                 ("kibana", "kibana.pkl", "kibana.json", "search-kibana", "", ""),
                 ("saas", "saas.pkl", "saas.json", "search-saas", "", ""),
+                ("splunk", "splunk.pkl", "splunk.json", "search-splunk", "", ""),
             )
             for name, _pickle, export_name, _action, *_ in indexes:
                 docs = (
@@ -136,6 +137,15 @@ class IndexPipelineTests(unittest.TestCase):
                     "content_policy": {"db_schema": "full", "other": "bounded"},
                     "n": len(docs), "avgdl": 1, "idf": {}, "docs": docs
                 }
+                if name == "splunk":
+                    docs[0].update({
+                        "services": ["live-search"], "platform": "paas",
+                        "validation_status": "source-reviewed-not-live-tested",
+                        "source_url": "https://wiki.corp.adobe.com/pages/viewpage.action?pageId=1",
+                        "source_revision": 1, "source_title": "fixture",
+                        "id": "fixture", "reviewed_at": "2026-10-08", "environment": "prod",
+                    })
+                    data["content_policy"]["splunk_reference"] = "full"
                 (root / export_name).write_text(json.dumps(data), encoding="utf-8")
 
             with patch.object(build_indexes, "ROOT", root), \
@@ -145,7 +155,7 @@ class IndexPipelineTests(unittest.TestCase):
                 manifest_path = build_indexes.bundle_exports()
                 self.assertEqual(verify_indexes.verify(), [])
                 manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-                self.assertEqual(set(manifest["indexes"]), {"commerce", "kibana", "saas"})
+                self.assertEqual(set(manifest["indexes"]), {"commerce", "kibana", "saas", "splunk"})
                 (app_builder / "actions/search-kibana/index.json").write_text("{}", encoding="utf-8")
                 self.assertTrue(any("SHA-256" in error for error in verify_indexes.verify()))
 

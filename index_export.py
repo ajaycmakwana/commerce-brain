@@ -29,16 +29,20 @@ def export_index(index_file: Path, output_file: Path, snippet_limit: int) -> dic
     export_docs = []
     for doc in docs:
         content = doc.get("content", "")
-        is_schema = doc.get("file_type") == "db_schema"
+        is_full_reference = doc.get("file_type") in ("db_schema", "splunk_reference")
         exported = {
             key: doc[key]
-            for key in ("repo", "file_type", "path", "source", "title")
+            for key in (
+                "repo", "file_type", "path", "source", "title", "id", "services",
+                "platform", "environment", "validation_status", "source_url",
+                "source_revision", "reviewed_at", "source_title",
+            )
             if key in doc
         }
         exported.update({
             "tokens": doc.get("tokens", []),
             "term_freqs": dict(Counter(doc.get("tokens", []))),
-            "content": content if is_schema else content[:snippet_limit],
+            "content": content if is_full_reference else content[:snippet_limit],
         })
         export_docs.append(exported)
 
@@ -62,6 +66,8 @@ def export_index(index_file: Path, output_file: Path, snippet_limit: int) -> dic
         "idf": idf,
         "docs": export_docs,
     }
+    if any(doc.get("file_type") == "splunk_reference" for doc in docs):
+        output["content_policy"]["splunk_reference"] = "full"
 
     output_file.parent.mkdir(parents=True, exist_ok=True)
     fd, temporary_path = tempfile.mkstemp(prefix=f".{output_file.name}.", dir=output_file.parent)

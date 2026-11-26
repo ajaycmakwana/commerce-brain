@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build, export, and bundle all three indexes without deploying them."""
+"""Build, export, and bundle all four indexes without deploying them."""
 
 import hashlib
 import json
@@ -17,6 +17,7 @@ INDEXES = (
     ("commerce", "commerce_brain.pkl", "commerce_brain_index.json", "search", "index_build.py", "export_index_json.py"),
     ("kibana", "kibana_brain.pkl", "kibana_brain_index.json", "search-kibana", "kibana_index_build.py", "export_kibana_json.py"),
     ("saas", "saas_brain.pkl", "saas_brain_index.json", "search-saas", "saas_index_build.py", "export_saas_json.py"),
+    ("splunk", "splunk_brain.pkl", "splunk_brain_index.json", "search-splunk", "splunk_index_build.py", "export_splunk_json.py"),
 )
 
 

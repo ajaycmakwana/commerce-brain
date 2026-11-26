@@ -2,7 +2,7 @@
 
 > **Documentation draft:** Proposed replacement for the [internal Confluence page](https://wiki.corp.adobe.com/pages/viewpage.action?pageId=3901721834). This file has been updated locally; the live page has not been changed.
 >
-> **Release status:** This guide describes the implementation in this worktree. All three indexes have been rebuilt and verified locally from existing source snapshots, but have not been deployed. The source checkouts were not refreshed from GitHub. Confirm the deployed backend version with the maintainer before expecting the new exact-schema behavior.
+> **Release status:** The Commerce, Kibana, and SaaS routes were deployed to Stage on October 8, 2026 and checked against local outputs. The fourth, Splunk reference route and MCP tool are implemented locally only and require separate deployment approval and client restart before use. See [DEPLOYMENT.md](DEPLOYMENT.md) for the recorded rollout.
 
 ## 1. What is Commerce Brain?
 
@@ -23,17 +23,18 @@ Commerce Brain supplies references. Copilot, Claude, or another configured assis
 
 ## 2. What it searches
 
-Commerce Brain has three reference collections:
+Commerce Brain has four reference collections (Splunk is not yet deployed):
 
 | Collection | Contents | Typical use |
 |---|---|---|
 | Commerce source | Selected source files for table definitions, feeds, indexers, subscriptions, CLI commands, query models, and SQL investigation examples | Understanding how Commerce code and data structures work |
 | Live Search / Kibana references | Elasticsearch query templates and catalog-index field documentation | Finding an appropriate query pattern for an investigation |
 | SaaS API references | Commerce Services and Live Search GraphQL, Commerce Services gRPC, and Product Recommendations REST documentation | Looking up documented API arguments, fields, and response shapes |
+| Splunk references | Curated, sanitized fields, SPL templates, interpretation caveats and source revisions for LS, PREX and PAY | Constructing bounded searches or interpreting supplied events; no live log access |
 
 These collections are **snapshots built from available source checkouts and reference documents**. They are not continuously synchronized with a merchant's deployment. File and document counts depend on the particular index build, so use the build manifest rather than a fixed count on this page.
 
-## 3. The four tools: which one should I use?
+## 3. The five tools: which one should I use?
 
 | Tool | Use it when you need... | What it returns |
 |---|---|---|
@@ -41,10 +42,11 @@ These collections are **snapshots built from available source checkouts and refe
 | `search_db_schema` | The declaration of a specific table | All exact table-name declarations found in the Commerce index, including full declaration content and source paths |
 | `search_kibana_queries` | A Live Search Elasticsearch query example or field reference | Ranked reference excerpts with document source, section title, and relevance score |
 | `search_saas_schema` | A SaaS API request/response structure or documented API detail | Ranked API-reference excerpts with document source, section title, and relevance score |
+| `search_splunk_log_reference` | Splunk query guidance or log interpretation for Live Search, Product Recommendations, or Payment Services | Complete curated sections with source link/revision, scope and validation caveats; optional service/platform filters |
 
 ### General search versus exact table lookup
 
-The three general-search tools use **BM25**, a keyword-based relevance algorithm. They rank documents by their terms and return a selected number of results. A higher score means a stronger keyword match within that collection, not a confidence percentage or proof of correctness. Scores from different collections are not directly comparable.
+The four general-search tools use **BM25**, a keyword-based relevance algorithm. They rank documents by their terms and return a selected number of results. A higher score means a stronger keyword match within that collection, not a confidence percentage or proof of correctness. Scores from different collections are not directly comparable.
 
 `search_db_schema` works differently: it matches a table name directly rather than choosing the top-ranked documents. This prevents a matching declaration from being dropped simply because another document scored higher.
 
@@ -56,12 +58,21 @@ A table may appear in more than one module or repository. Exact lookup returns t
 |---|---|---|
 | General search | `query`: a non-empty search string | `top_k`: an integer from 1 to 10, default 5 |
 | Exact table lookup | `table_name`: the exact identifier, using letters, numbers, or underscores | None |
+| Splunk reference search | `query`: non-empty string | `top_k`: 1-10; `service`: live-search, product-recommendations, payment-services; `platform`: paas, cell |
 
 For complete table declarations, use exact lookup. Ordinary search results are bounded excerpts and should not be treated as complete source files.
 
 ## 4. How to use it in your assistant
 
 After configuring the MCP connection, ask naturally or explicitly request a Commerce Brain tool. Tool selection depends on the assistant, its instructions, and any client approval settings.
+
+Load the reference-first guidance in `CLAUDE.md` through the client's supported
+instruction mechanism. No prefix or tool name is required in normal questions.
+For example: "How do I trace a Payment Services HTTP 400 when there is no PayPal
+order ID?" The agent retrieves references and constructs a query; it does not
+search Splunk. If evidence is missing or contradictory, say so. See
+[Splunk curation and coverage](splunk-reference/README.md); do not claim all
+log families are documented or that templates were live-tested.
 
 **Example prompts:**
 
@@ -119,7 +130,7 @@ To configure more than one client:
 bash install.sh copilot,claude-code
 ```
 
-Restart the selected client and confirm that `commerce-brain` and its four tools appear in the client's MCP/tool list. Approve the connection or tool usage if the client requests it.
+After the separately approved Splunk release, restart the selected client and confirm that `commerce-brain` and its five tools appear in the client's MCP/tool list. Approve the connection or tool usage if the client requests it. A locally advertised tool is not proof that its backend route is deployed.
 
 The installer updates only the selected client configurations. It preserves unrelated JSON settings, replaces stale Commerce Brain entries, and writes each updated file atomically. It does not build indexes, deploy actions, install prompt hooks, or add global assistant instructions.
 
@@ -191,8 +202,8 @@ Setup preserves dirty, detached, divergent, and non-target source checkouts. Cle
 
 The local pipeline:
 
-1. Collects source/reference documents and builds Commerce, Kibana, and SaaS indexes.
-2. Exports all three as JSON, keeping Commerce table declarations in full and ordinary search content bounded.
+1. Collects source/reference documents and builds Commerce, Kibana, SaaS, and curated Splunk indexes.
+2. Exports all four as JSON, keeping Commerce table declarations and bounded curated Splunk sections in full, with ordinary search content bounded.
 3. Bundles each JSON index with its corresponding App Builder action.
 4. Writes `app-builder/index-manifest.json` and checks the bundled artifacts.
 
@@ -219,7 +230,7 @@ Missing source version information is reported honestly rather than inferred. Th
 
 **Building indexes does not update the live service.** Deployment is a separate, explicitly approved operation. The actions use their bundled `index.json`; uploading a file to Adobe I/O Files does not update them.
 
-For the improved exact lookup, deploy and verify the updated backend and matching indexes before distributing the updated MCP server to users. Follow [DEPLOYMENT.md](DEPLOYMENT.md) for preflight, rollout verification, and rollback using a saved known-good set of action code, all three indexes, and their manifest.
+Exact lookup is available on the verified Stage rollout. For the new Splunk tool, separately approve, deploy, and verify its backend before distributing the updated MCP server to users. Follow [DEPLOYMENT.md](DEPLOYMENT.md) for preflight, rollout verification, and rollback using the saved known-good action code, matching indexes, and manifest.
 
 The staging endpoint and existing `require-adobe-auth: false` action settings remain unchanged for the intended internal team usage. Internal intent is not proof of an authentication or network perimeter.
 
