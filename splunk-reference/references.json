@@ -1,0 +1,201 @@
+{
+  "format_version": 1,
+  "sources": {
+    "ls-sync": {
+      "url": "https://wiki.corp.adobe.com/pages/viewpage.action?pageId=3916575325",
+      "title": "Live Search Data Sync - Splunk Investigation Guide",
+      "revision": 2,
+      "reviewed_at": "2026-10-08"
+    },
+    "toolkit": {
+      "url": "https://wiki.corp.adobe.com/pages/viewpage.action?pageId=3990723578",
+      "title": "Investigation Toolkit - Splunk",
+      "revision": 11,
+      "reviewed_at": "2026-10-08"
+    },
+    "pay-queries": {
+      "url": "https://wiki.corp.adobe.com/pages/viewpage.action?pageId=2380244805",
+      "title": "Splunk query samples PAY",
+      "revision": 9,
+      "reviewed_at": "2026-10-08"
+    },
+    "pay-trace": {
+      "url": "https://wiki.corp.adobe.com/pages/viewpage.action?pageId=4003609566",
+      "title": "Payment Services Runbooks - Finding transactions without PaypalOrderID",
+      "revision": 1,
+      "reviewed_at": "2026-10-08"
+    }
+  },
+  "records": [
+    {
+      "id": "ls-sku-timeline",
+      "source": "ls-sync",
+      "title": "Live Search product SKU sync timeline across catalog and search services",
+      "services": ["live-search"],
+      "platform": "paas",
+      "environment": "prod",
+      "validation_status": "source-reviewed-not-live-tested",
+      "content": "Correlate catalog processing and downstream search events for ENVIRONMENT_ID and SKU. Substitute quoted values safely. Source-derived template with example identifiers removed and a bounded last-hour range:\n```spl\n(index=dx_datasolutions_catalog_domain_prod OR index=dx_product_recommendations_prod) earliest=-1h latest=now \"<ENVIRONMENT_ID>\" \"<SKU>\"\n| spath input=_raw output=msg path=message.message\n| table _time service_name msg\n| sort _time\n```\nThe source uses message.message as the displayed message. Services may use different structures; inspect a sanitized event if msg is missing. This trace covers logged events, not necessarily every processing stage. Matching SKU text does not prove successful indexing, and lack of SKU text does not prove the product was not processed."
+    },
+    {
+      "id": "ls-index-submission",
+      "source": "ls-sync",
+      "title": "Live Search streaming update totalSubmitted Elasticsearch write signal",
+      "services": ["live-search"],
+      "platform": "paas",
+      "environment": "prod",
+      "validation_status": "source-reviewed-not-live-tested",
+      "content": "Find downstream submission signals for ENVIRONMENT_ID:\n```spl\nindex=dx_product_recommendations_prod service_name=\"streaming-update-service\" \"<ENVIRONMENT_ID>\" earliest=-1h latest=now\n| rex field=_raw \"totalSubmitted=(?<submitted>\\d+)\"\n| where submitted > 0\n| table _time submitted service_name\n```\nA positive totalSubmitted value is a submission signal, not proof a particular SKU exists in the active Elasticsearch index. Correlate the workflow and verify the target document separately."
+    },
+    {
+      "id": "ls-no-changes",
+      "source": "ls-sync",
+      "title": "Live Search catalog persistence no-changes skip",
+      "services": ["live-search"],
+      "platform": "paas",
+      "environment": "prod",
+      "validation_status": "source-reviewed-not-live-tested",
+      "content": "Investigate unchanged-content processing:\n```spl\nindex=dx_datasolutions_catalog_domain_prod service_name=\"catalog-persistence-service\" \"<ENVIRONMENT_ID>\" \"Skipping update due to no changes\" earliest=-1h latest=now\n| spath input=_raw output=msg path=message.message\n| table _time service_name msg\n```\nThe signature indicates a no-changes skip in this stage, not a processing crash. Correlate the relevant product/event before explaining why an expected update is absent."
+    },
+    {
+      "id": "ls-price-fallback",
+      "source": "ls-sync",
+      "title": "Live Search null price missing fallback record investigation",
+      "services": ["live-search"],
+      "platform": "paas",
+      "environment": "prod",
+      "validation_status": "source-reviewed-not-live-tested",
+      "content": "Look for the documented missing-price-fallback signature:\n```spl\nindex=dx_datasolutions_catalog_domain_prod service_name=\"catalog-persistence-service\" \"<ENVIRONMENT_ID>\" \"No product price fallback record found\" earliest=-1h latest=now\n| spath input=_raw output=msg path=message.message\n| table _time service_name msg\n```\nThis identifies an observed fallback failure, not the cause of every missing/stale price. Compare product and price feed evidence for the affected SKU. Do not prescribe resync solely from this signature."
+    },
+    {
+      "id": "ls-duplicate",
+      "source": "ls-sync",
+      "title": "Live Search duplicate notification ignored by streaming update",
+      "services": ["live-search"],
+      "platform": "paas",
+      "environment": "prod",
+      "validation_status": "source-reviewed-not-live-tested",
+      "content": "Documented deduplication signature:\n```spl\nindex=dx_product_recommendations_prod service_name=\"streaming-update-service\" \"<ENVIRONMENT_ID>\" \"Ignoring duplicate\" earliest=-1h latest=now\n| spath input=_raw output=msg path=message.message\n| table _time service_name msg\n```\nAn ignored duplicate is not by itself evidence of data loss. Trace the original event and downstream result before interpreting it as a fault."
+    },
+    {
+      "id": "shared-zero-events",
+      "source": "ls-sync",
+      "title": "Zero Splunk events troubleshooting environment filters time range",
+      "services": ["live-search", "product-recommendations", "payment-services"],
+      "platform": "any",
+      "environment": "any",
+      "validation_status": "source-reviewed-not-live-tested",
+      "content": "Zero results do not prove an operation never happened. Check the time range/timezone, index access, platform/environment routing, restrictive filters, identifier placement, and available retention. These are diagnostic checks, not claims about an incident. The source describes Live Search; these general interpretation checks are also useful for other services, but it does not establish their log routing. Retrieve the matching service/platform reference before constructing a discovery query. Do not reuse Live Search indexes for Payments or Cell. Widen time deliberately after confirming scope. Missing references are not equivalent to missing logs."
+    },
+    {
+      "id": "prex-writer-paas",
+      "source": "toolkit",
+      "title": "Product Recommendations PaaS DataSource Writer embedding persistence errors",
+      "services": ["product-recommendations"],
+      "platform": "paas",
+      "environment": "prod",
+      "validation_status": "source-reviewed-not-live-tested",
+      "content": "Source-derived PaaS DataSource Writer error search with a bounded range:\n```spl\nindex=dx_product_recommendations_prod namespace=ns-team-commerce-unified-ranking-prod service_name=\"datasource-writer-service\" \"<ENVIRONMENT_ID>\" message.level=ERROR earliest=-1h latest=now\n| table _time service_name message.level message.message\n```\nInspect the error to distinguish upstream fetch failure from persistence failure. Do not conclude every empty recommendation unit is caused by missing embeddings; storefront configuration, filters, and behavioral data require separate evidence."
+    },
+    {
+      "id": "prex-writer-cell",
+      "source": "toolkit",
+      "title": "Product Recommendations Cell DataSource Writer errors and log.level",
+      "services": ["product-recommendations"],
+      "platform": "cell",
+      "environment": "prod",
+      "validation_status": "source-reviewed-not-live-tested",
+      "content": "Source-derived Cell error filter:\n```spl\nindex=ccssms_prod environment_name=PROD namespace=\"*unified*\" service_name=\"datasource-writer-service\" \"<TENANT_ID>\" log.level=ERROR earliest=-1h latest=now\n| table _time service_name log.level\n```\nCell uses log.level versus PaaS message.level, and TENANT_ID rather than ENVIRONMENT_ID. Do not merge field mappings or reuse the PaaS index. The namespace wildcard can span cells/services; narrow using verified incident scope when available."
+    },
+    {
+      "id": "prex-sensei-paas",
+      "source": "toolkit",
+      "title": "Product Recommendations PaaS Sensei 401 403 404 upstream errors",
+      "services": ["product-recommendations"],
+      "platform": "paas",
+      "environment": "prod",
+      "validation_status": "source-reviewed-not-live-tested",
+      "content": "PaaS discovery for Sensei-related errors:\n```spl\nindex=dx_product_recommendations_prod namespace=ns-team-commerce-unified-ranking-prod service_name=\"datasource-writer-service\" \"<ENVIRONMENT_ID>\" (\"4xx\" OR \"401\" OR \"403\" OR \"404\" OR \"Sensei\") message.level!=\"INFO\" earliest=-1h latest=now\n```\nThis is a broad keyword search, not an exact HTTP-status filter. Read the error and endpoint before attributing failure to authorization, provisioning, quota, or another cause. Separate observed status from inferred cause."
+    },
+    {
+      "id": "prex-sensei-cell",
+      "source": "toolkit",
+      "title": "Product Recommendations Cell Sensei upstream error search",
+      "services": ["product-recommendations"],
+      "platform": "cell",
+      "environment": "prod",
+      "validation_status": "source-reviewed-not-live-tested",
+      "content": "Cell Sensei discovery query:\n```spl\nindex=ccssms_prod environment_name=PROD namespace=\"*unified*\" service_name=\"datasource-writer-service\" \"<TENANT_ID>\" (\"4xx\" OR \"401\" OR \"403\" OR \"404\" OR \"Sensei\") log.level!=\"INFO\" earliest=-1h latest=now\n```\nKeep Cell scope and log.level mapping. Keyword matches alone do not prove an HTTP error occurred or identify root cause. Inspect the event and correlate the request."
+    },
+    {
+      "id": "prex-reader",
+      "source": "toolkit",
+      "title": "Product Recommendations PaaS DataSource Reader errors",
+      "services": ["product-recommendations"],
+      "platform": "paas",
+      "environment": "prod",
+      "validation_status": "source-reviewed-not-live-tested",
+      "content": "Source-derived reader error filter:\n```spl\nindex=dx_product_recommendations_prod namespace=ns-team-commerce-unified-ranking-prod service_name=\"datasource-reader-service\" \"<ENVIRONMENT_ID>\" message.level=ERROR earliest=-1h latest=now\n```\nDistinguish reader-side failure from writer-side enrichment failure. This reference does not document all recommendation request, behavioral-event, or storefront logger schemas; do not invent those fields."
+    },
+    {
+      "id": "pay-scope",
+      "source": "pay-queries",
+      "title": "Payment Services Splunk environment namespace and service selection",
+      "services": ["payment-services"],
+      "platform": "any",
+      "environment": "any",
+      "validation_status": "source-reviewed-not-live-tested",
+      "content": "The source documents dx_magento_payments_prod and dx_magento_payments_nonprod. The prod index includes ns-team-magento-payments-prod and ns-team-magento-payments-sandbox; index name alone does not identify live traffic. Nonprod service examples: magpay-payments-backend, magpay-payments-aggregator, magpay-payments-configuration, magpay-payments-reporting. Live-backend starting template:\n```spl\nindex=dx_magento_payments_prod namespace=\"ns-team-magento-payments-prod\" service_name=\"magpay-payments-backend\" earliest=-30m latest=now\n```\nConfirm live versus sandbox/nonprod before substitution. This source revision is from 2024; routing is not live-validated."
+    },
+    {
+      "id": "pay-asr-fields",
+      "source": "pay-trace",
+      "title": "Payment Services HTTP ASR log nested request response and trace field meanings",
+      "services": ["payment-services"],
+      "platform": "any",
+      "environment": "prod",
+      "validation_status": "source-reviewed-not-live-tested",
+      "content": "The runbook HTTP event documents message.logger_name, message.level, message.trace_id, and message.requestId. HTTP details under message.message include direction, requestMethod, requestPath, responseStatus, duration. Do not require message.level=ERROR to find HTTP 400: the source example logs it at INFO. Duration units are not established here. Without a PayPal order ID, correlate merchant-scoped request path, time, status, then trace ID. Raw headers/body examples are excluded: authorization, signatures, API keys, personal metadata, and payment data must not be indexed."
+    },
+    {
+      "id": "pay-no-order-id",
+      "source": "pay-trace",
+      "title": "Find Payment Services checkout HTTP 400 without PayPalOrderID",
+      "services": ["payment-services"],
+      "platform": "any",
+      "environment": "prod",
+      "validation_status": "source-reviewed-not-live-tested",
+      "content": "Required inputs: MERCHANT_ID and narrow incident time range. Obtain request path from supplied New Relic or local payment/support logs; this tool accesses none of them. Adapted query with customer identifiers removed:\n```spl\nindex=dx_magento_payments_prod namespace=\"ns-team-magento-payments-prod\" service_name=\"magpay-payments-backend\" \"<MERCHANT_ID>/payment/paypal/order\" \"message.message.responseStatus\"=400 earliest=-30m latest=now\n| table _time message.trace_id message.requestId message.message.requestMethod message.message.requestPath message.message.responseStatus\n```\nUse the actual trace ID from the event, not the page's example. The original final query uses a different trace ID from its earlier event; do not copy it literally. HTTP 400 proves a request was rejected, not why."
+    },
+    {
+      "id": "pay-trace-follow",
+      "source": "pay-trace",
+      "title": "Payment Services correlate transaction events across services using trace ID",
+      "services": ["payment-services"],
+      "platform": "any",
+      "environment": "prod",
+      "validation_status": "source-reviewed-not-live-tested",
+      "content": "Extract TRACE_ID from the incident, then search the same time window without a single-service restriction:\n```spl\nindex=dx_magento_payments_prod namespace=\"ns-team-magento-payments-prod\" \"<TRACE_ID>\" earliest=-30m latest=now\n| table _time service_name message.level message.logger_name message.trace_id message.message\n| sort _time\n```\nRead privately and sanitize before sharing: message.message may contain sensitive payloads. Free-text trace lookup accommodates differing structures, but inspect each match before asserting correlation. Substitute the actual window for an older incident."
+    },
+    {
+      "id": "pay-http-status-caveat",
+      "source": "pay-queries",
+      "title": "Payment Services non-success HTTP response query documentation conflict",
+      "services": ["payment-services"],
+      "platform": "any",
+      "environment": "prod",
+      "validation_status": "source-conflict-not-live-tested",
+      "content": "The source headings say requests not returning HTTP 200/201, but the filter includes responseStatus=\"200\" and responseStatus!=\"201\". This does not implement that intent; do not reuse it as a verified error query. After confirming the field, an explicitly corrected, untested candidate is:\n```spl\nindex=dx_magento_payments_prod namespace=\"ns-team-magento-payments-prod\" service_name=\"magpay-payments-backend\" \"message.logger_name\"=\"com.adobe.asr.logging\" earliest=-30m latest=now\n| spath path=message.message.responseStatus output=http_status\n| where isnotnull(http_status) AND http_status!=200 AND http_status!=201\n| table _time service_name http_status message.trace_id\n```\nNon-200/201 does not always mean failure; interpret redirects and other success codes per operation. Validate against sanitized events."
+    },
+    {
+      "id": "pay-provider-errors",
+      "source": "pay-queries",
+      "title": "Payment Services PayPal HTTP client provider errors logger filter",
+      "services": ["payment-services"],
+      "platform": "any",
+      "environment": "nonprod",
+      "validation_status": "source-reviewed-not-live-tested",
+      "content": "Documented nonprod PayPal client logger search:\n```spl\nindex=dx_magento_payments_nonprod \"message.level\"=ERROR \"message.logger_name\"=\"c.a.m.p.lib.PayPalHttpClient\" earliest=-30m latest=now\n```\nInspect the provider response and correlate the transaction before explaining a decline/integration failure. Do not silently substitute prod for nonprod. This does not establish provider error-code meanings or cover every authorization, capture, or refund format."
+    }
+  ]
+}
